@@ -57,7 +57,7 @@ func NewStatusTracker(log log.Logger, metrics Metrics) *StatusTracker {
 	return st
 }
 
-func (st *StatusTracker) OnEvent(ev event.Event) {
+func (st *StatusTracker) OnEvent(ev event.Event) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
@@ -69,6 +69,14 @@ func (st *StatusTracker) OnEvent(ev event.Event) {
 	case engine.PendingSafeUpdateEvent:
 		st.data.UnsafeL2 = x.Unsafe
 		st.data.PendingSafeL2 = x.PendingSafe
+	case engine.CrossUnsafeUpdateEvent:
+		st.data.CrossUnsafeL2 = x.CrossUnsafe
+		st.data.UnsafeL2 = x.LocalUnsafe
+	case engine.LocalSafeUpdateEvent:
+		st.data.LocalSafeL2 = x.Ref
+	case engine.CrossSafeUpdateEvent:
+		st.data.SafeL2 = x.CrossSafe
+		st.data.LocalSafeL2 = x.LocalSafe
 	case derive.DeriverL1StatusEvent:
 		st.data.CurrentL1 = x.Origin
 	case L1UnsafeEvent:
@@ -110,7 +118,7 @@ func (st *StatusTracker) OnEvent(ev event.Event) {
 		st.data.SafeL2 = x.Safe
 		st.data.FinalizedL2 = x.Finalized
 	default: // other events do not affect the sync status
-		return
+		return false
 	}
 
 	// If anything changes, then copy the state to the published SyncStatus
@@ -121,6 +129,7 @@ func (st *StatusTracker) OnEvent(ev event.Event) {
 		published = st.data
 		st.published.Store(&published)
 	}
+	return true
 }
 
 // SyncStatus is thread safe, and reads the latest view of L1 and L2 block labels
