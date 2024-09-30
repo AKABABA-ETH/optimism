@@ -115,7 +115,7 @@ func TestEVM(t *testing.T) {
 	}
 }
 
-func TestEVMSingleStep(t *testing.T) {
+func TestEVMSingleStep_Jump(t *testing.T) {
 	var tracer *tracing.Hooks
 
 	versions := GetMipsVersionTestCases(t)
@@ -150,6 +150,75 @@ func TestEVMSingleStep(t *testing.T) {
 				if tt.expectLink {
 					expected.Registers[31] = state.GetPC() + 8
 				}
+
+				stepWitness, err := goVm.Step(true)
+				require.NoError(t, err)
+
+				// Check expectations
+				expected.Validate(t, state)
+				testutil.ValidateEVM(t, stepWitness, step, goVm, v.StateHashFn, v.Contracts, tracer)
+			})
+		}
+	}
+}
+
+func TestEVMSingleStep_Operators(t *testing.T) {
+	var tracer *tracing.Hooks
+
+	versions := GetMipsVersionTestCases(t)
+	cases := []struct {
+		name      string
+		isImm     bool
+		rs        uint32
+		rt        uint32
+		imm       uint16
+		funct     uint32
+		opcode    uint32
+		expectRes uint32
+	}{
+		{name: "add", funct: 0x20, isImm: false, rs: uint32(12), rt: uint32(20), expectRes: uint32(32)},                        // add t0, s1, s2
+		{name: "addu", funct: 0x21, isImm: false, rs: uint32(12), rt: uint32(20), expectRes: uint32(32)},                       // addu t0, s1, s2
+		{name: "addi", opcode: 0x8, isImm: true, rs: uint32(4), rt: uint32(1), imm: uint16(40), expectRes: uint32(44)},         // addi t0, s1, 40
+		{name: "addi sign", opcode: 0x8, isImm: true, rs: uint32(2), rt: uint32(1), imm: uint16(0xfffe), expectRes: uint32(0)}, // addi t0, s1, -2
+		{name: "addiu", opcode: 0x9, isImm: true, rs: uint32(4), rt: uint32(1), imm: uint16(40), expectRes: uint32(44)},        // addiu t0, s1, 40
+		{name: "sub", funct: 0x22, isImm: false, rs: uint32(20), rt: uint32(12), expectRes: uint32(8)},                         // sub t0, s1, s2
+		{name: "subu", funct: 0x23, isImm: false, rs: uint32(20), rt: uint32(12), expectRes: uint32(8)},                        // subu t0, s1, s2
+		{name: "and", funct: 0x24, isImm: false, rs: uint32(1200), rt: uint32(490), expectRes: uint32(160)},                    // and t0, s1, s2
+		{name: "andi", opcode: 0xc, isImm: true, rs: uint32(4), rt: uint32(1), imm: uint16(40), expectRes: uint32(0)},          // andi t0, s1, 40
+		{name: "or", funct: 0x25, isImm: false, rs: uint32(1200), rt: uint32(490), expectRes: uint32(1530)},                    // or t0, s1, s2
+		{name: "ori", opcode: 0xd, isImm: true, rs: uint32(4), rt: uint32(1), imm: uint16(40), expectRes: uint32(44)},          // ori t0, s1, 40
+		{name: "xor", funct: 0x26, isImm: false, rs: uint32(1200), rt: uint32(490), expectRes: uint32(1370)},                   // xor t0, s1, s2
+		{name: "xori", opcode: 0xe, isImm: true, rs: uint32(4), rt: uint32(1), imm: uint16(40), expectRes: uint32(44)},         // xori t0, s1, 40
+		{name: "nor", funct: 0x27, isImm: false, rs: uint32(1200), rt: uint32(490), expectRes: uint32(4294965765)},             // nor t0, s1, s2
+		{name: "slt", funct: 0x2a, isImm: false, rs: 0xFF_FF_FF_FE, rt: uint32(5), expectRes: uint32(1)},                       // slt t0, s1, s2
+		{name: "sltu", funct: 0x2b, isImm: false, rs: uint32(1200), rt: uint32(490), expectRes: uint32(0)},                     // sltu t0, s1, s2
+	}
+
+	for _, v := range versions {
+		for i, tt := range cases {
+			testName := fmt.Sprintf("%v (%v)", tt.name, v.Name)
+			t.Run(testName, func(t *testing.T) {
+				goVm := v.VMFactory(nil, os.Stdout, os.Stderr, testutil.CreateLogger(), testutil.WithRandomization(int64(i)), testutil.WithPC(0), testutil.WithNextPC(4))
+				state := goVm.GetState()
+				var insn uint32
+				if tt.isImm {
+					insn = tt.opcode<<26 | uint32(17)<<21 | uint32(8)<<16 | uint32(tt.imm)
+					state.GetRegistersRef()[8] = tt.rt
+					state.GetRegistersRef()[17] = tt.rs
+				} else {
+					insn = uint32(17)<<21 | uint32(18)<<16 | uint32(8)<<11 | tt.funct
+					state.GetRegistersRef()[17] = tt.rs
+					state.GetRegistersRef()[18] = tt.rt
+				}
+				state.GetMemory().SetMemory(0, insn)
+				step := state.GetStep()
+
+				// Setup expectations
+				expected := testutil.NewExpectedState(state)
+				expected.Step += 1
+				expected.PC = 4
+				expected.NextPC = 8
+				expected.Registers[8] = tt.expectRes
 
 				stepWitness, err := goVm.Step(true)
 				require.NoError(t, err)

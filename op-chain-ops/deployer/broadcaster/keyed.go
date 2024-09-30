@@ -66,7 +66,7 @@ func NewKeyedBroadcaster(cfg KeyedBroadcasterOpts) (*KeyedBroadcaster, error) {
 	mgrCfg.FeeLimitMultiplier.Store(5)
 	mgrCfg.FeeLimitThreshold.Store(big.NewInt(100))
 	mgrCfg.MinTipCap.Store(minTipCap)
-	mgrCfg.MinTipCap.Store(minBaseFee)
+	mgrCfg.MinBaseFee.Store(minBaseFee)
 
 	txmLogger := log.NewLogger(log.DiscardHandler())
 	if cfg.TXManagerLogger != nil {
@@ -162,7 +162,7 @@ func (t *KeyedBroadcaster) Broadcast(ctx context.Context) ([]BroadcastResult, er
 			)
 		}
 
-		results = append(results, outRes)
+		results[i] = outRes
 	}
 	return results, txErr.ErrorOrNil()
 }

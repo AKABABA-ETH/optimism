@@ -90,6 +90,10 @@ type TxManager interface {
 	// Close the underlying connection
 	Close()
 	IsClosed() bool
+
+	// SuggestGasPriceCaps suggests what the new tip, base fee, and blob base fee should be based on
+	// the current L1 conditions. `blobBaseFee` will be nil if 4844 is not yet active.
+	SuggestGasPriceCaps(ctx context.Context) (tipCap *big.Int, baseFee *big.Int, blobBaseFee *big.Int, err error)
 }
 
 // ETHBackend is the set of methods that the transaction manager uses to resubmit gas & determine
@@ -110,7 +114,7 @@ type ETHBackend interface {
 	SendTransaction(ctx context.Context, tx *types.Transaction) error
 
 	// These functions are used to estimate what the base fee & priority fee should be set to.
-	// TODO(CLI-3318): Maybe need a generic interface to support different RPC providers
+	// TODO: Maybe need a generic interface to support different RPC providers
 	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
 	SuggestGasTipCap(ctx context.Context) (*big.Int, error)
 	// NonceAt returns the account nonce of the given account.
@@ -345,23 +349,6 @@ func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*
 
 	gasLimit := candidate.GasLimit
 
-	// If the gas limit is set, we can use that as the gas
-	if gasLimit == 0 {
-		// Calculate the intrinsic gas for the transaction
-		gas, err := m.backend.EstimateGas(ctx, ethereum.CallMsg{
-			From:      m.cfg.From,
-			To:        candidate.To,
-			GasTipCap: gasTipCap,
-			GasFeeCap: gasFeeCap,
-			Data:      candidate.TxData,
-			Value:     candidate.Value,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to estimate gas: %w", errutil.TryAddRevertReason(err))
-		}
-		gasLimit = gas
-	}
-
 	var sidecar *types.BlobTxSidecar
 	var blobHashes []common.Hash
 	if len(candidate.Blobs) > 0 {
@@ -371,6 +358,28 @@ func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*
 		if sidecar, blobHashes, err = MakeSidecar(candidate.Blobs); err != nil {
 			return nil, fmt.Errorf("failed to make sidecar: %w", err)
 		}
+	}
+
+	// If the gas limit is set, we can use that as the gas
+	if gasLimit == 0 {
+		// Calculate the intrinsic gas for the transaction
+		callMsg := ethereum.CallMsg{
+			From:      m.cfg.From,
+			To:        candidate.To,
+			GasTipCap: gasTipCap,
+			GasFeeCap: gasFeeCap,
+			Data:      candidate.TxData,
+			Value:     candidate.Value,
+		}
+		if len(blobHashes) > 0 {
+			callMsg.BlobGasFeeCap = blobBaseFee
+			callMsg.BlobHashes = blobHashes
+		}
+		gas, err := m.backend.EstimateGas(ctx, callMsg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to estimate gas: %w", errutil.TryAddRevertReason(err))
+		}
+		gasLimit = gas
 	}
 
 	var txMessage types.TxData
@@ -810,6 +819,12 @@ func (m *SimpleTxManager) increaseGasPrice(ctx context.Context, tx *types.Transa
 			"gasFeeCap", bumpedFee, "gasTipCap", bumpedTip)
 	}
 
+	if tx.Gas() > gas {
+		// Don't bump the gas limit down if the passed-in gas limit is higher than
+		// what was originally specified.
+		gas = tx.Gas()
+	}
+
 	var newTx *types.Transaction
 	if tx.Type() == types.BlobTxType {
 		// Blob transactions have an additional blob gas price we must specify, so we must make sure it is
@@ -857,7 +872,7 @@ func (m *SimpleTxManager) increaseGasPrice(ctx context.Context, tx *types.Transa
 }
 
 // SuggestGasPriceCaps suggests what the new tip, base fee, and blob base fee should be based on
-// the current L1 conditions. blobfee will be nil if 4844 is not yet active.
+// the current L1 conditions. `blobBaseFee` will be nil if 4844 is not yet active.
 func (m *SimpleTxManager) SuggestGasPriceCaps(ctx context.Context) (*big.Int, *big.Int, *big.Int, error) {
 	cCtx, cancel := context.WithTimeout(ctx, m.cfg.NetworkTimeout)
 	defer cancel()
@@ -983,7 +998,7 @@ func updateFees(oldTip, oldFeeCap, newTip, newBaseFee *big.Int, isBlobTx bool, l
 		return newTip, newFeeCap
 	} else if newTip.Cmp(thresholdTip) >= 0 && newFeeCap.Cmp(thresholdFeeCap) < 0 {
 		// Tip has gone up, but base fee is flat or down.
-		// TODO(CLI-3714): Do we need to recalculate the FC here?
+		// TODO: Do we need to recalculate the FC here?
 		lgr.Debug("Using new tip and threshold feecap")
 		return newTip, thresholdFeeCap
 	} else if newTip.Cmp(thresholdTip) < 0 && newFeeCap.Cmp(thresholdFeeCap) >= 0 {
@@ -993,7 +1008,7 @@ func updateFees(oldTip, oldFeeCap, newTip, newBaseFee *big.Int, isBlobTx bool, l
 		return thresholdTip, calcGasFeeCap(newBaseFee, thresholdTip)
 
 	} else {
-		// TODO(CLI-3713): Should we skip the bump in this case?
+		// TODO: Should we skip the bump in this case?
 		lgr.Debug("Using threshold tip and threshold feecap")
 		return thresholdTip, thresholdFeeCap
 	}

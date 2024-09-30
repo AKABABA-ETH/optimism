@@ -9,11 +9,6 @@ import { Executables } from "scripts/libraries/Executables.sol";
 import { ForgeArtifacts, StorageSlot } from "scripts/libraries/ForgeArtifacts.sol";
 import { Process } from "scripts/libraries/Process.sol";
 
-// Contracts
-import { AnchorStateRegistry } from "src/dispute/AnchorStateRegistry.sol";
-import { FaultDisputeGame } from "src/dispute/FaultDisputeGame.sol";
-import { PermissionedDisputeGame } from "src/dispute/PermissionedDisputeGame.sol";
-
 // Libraries
 import { LibString } from "@solady/utils/LibString.sol";
 import { Constants } from "src/libraries/Constants.sol";
@@ -26,6 +21,7 @@ import { ISystemConfig } from "src/L1/interfaces/ISystemConfig.sol";
 import { IResourceMetering } from "src/L1/interfaces/IResourceMetering.sol";
 import { ISuperchainConfig } from "src/L1/interfaces/ISuperchainConfig.sol";
 import { ProtocolVersion } from "src/L1/interfaces/IProtocolVersions.sol";
+import { IAnchorStateRegistry } from "src/dispute/interfaces/IAnchorStateRegistry.sol";
 
 /// @title Initializer_Test
 /// @dev Ensures that the `initialize()` function on contracts cannot be called more than
@@ -372,7 +368,7 @@ contract Initializer_Test is Bridge_Initializer {
                 target: address(anchorStateRegistry),
                 initCalldata: abi.encodeCall(
                     anchorStateRegistry.initialize,
-                    (new AnchorStateRegistry.StartingAnchorRoot[](1), ISuperchainConfig(address(0)))
+                    (new IAnchorStateRegistry.StartingAnchorRoot[](1), ISuperchainConfig(address(0)))
                 )
             })
         );
@@ -383,7 +379,7 @@ contract Initializer_Test is Bridge_Initializer {
                 target: address(anchorStateRegistry),
                 initCalldata: abi.encodeCall(
                     anchorStateRegistry.initialize,
-                    (new AnchorStateRegistry.StartingAnchorRoot[](1), ISuperchainConfig(address(0)))
+                    (new IAnchorStateRegistry.StartingAnchorRoot[](1), ISuperchainConfig(address(0)))
                 )
             })
         );
@@ -415,8 +411,8 @@ contract Initializer_Test is Bridge_Initializer {
         excludes[4] = "src/dispute/FaultDisputeGame.sol";
         excludes[5] = "src/dispute/PermissionedDisputeGame.sol";
         // TODO: Eventually remove this exclusion. Same reason as above dispute contracts.
-        excludes[6] = "src/L1/OPStackManager.sol";
-        excludes[7] = "src/L1/OPStackManagerInterop.sol";
+        excludes[6] = "src/L1/OPContractsManager.sol";
+        excludes[7] = "src/L1/OPContractsManagerInterop.sol";
 
         // Get all contract names in the src directory, minus the excluded contracts.
         string[] memory contractNames = ForgeArtifacts.getContractNames("src/*", excludes);

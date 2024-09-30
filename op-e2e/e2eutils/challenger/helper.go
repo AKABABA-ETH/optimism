@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-service/crypto"
+
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/stretchr/testify/require"
 
@@ -56,7 +58,7 @@ func NewHelper(log log.Logger, t *testing.T, require *require.Assertions, dir st
 	}
 }
 
-type Option func(config2 *config.Config)
+type Option func(c *config.Config)
 
 func WithFactoryAddress(addr common.Address) Option {
 	return func(c *config.Config) {
@@ -72,13 +74,25 @@ func WithGameAddress(addr common.Address) Option {
 
 func WithPrivKey(key *ecdsa.PrivateKey) Option {
 	return func(c *config.Config) {
-		c.TxMgrConfig.PrivateKey = e2eutils.EncodePrivKeyToString(key)
+		c.TxMgrConfig.PrivateKey = crypto.EncodePrivKeyToString(key)
 	}
 }
 
 func WithPollInterval(pollInterval time.Duration) Option {
 	return func(c *config.Config) {
 		c.PollInterval = pollInterval
+	}
+}
+
+func WithValidPrestateRequired() Option {
+	return func(c *config.Config) {
+		c.AllowInvalidPrestate = false
+	}
+}
+
+func WithInvalidCannonPrestate() Option {
+	return func(c *config.Config) {
+		c.CannonAbsolutePreState = "/tmp/not-a-real-prestate.foo"
 	}
 }
 
@@ -130,6 +144,13 @@ func applyCannonConfig(c *config.Config, t *testing.T, rollupCfg *rollup.Config,
 func WithCannon(t *testing.T, rollupCfg *rollup.Config, l2Genesis *core.Genesis) Option {
 	return func(c *config.Config) {
 		c.TraceTypes = append(c.TraceTypes, types.TraceTypeCannon)
+		applyCannonConfig(c, t, rollupCfg, l2Genesis)
+	}
+}
+
+func WithPermissioned(t *testing.T, rollupCfg *rollup.Config, l2Genesis *core.Genesis) Option {
+	return func(c *config.Config) {
+		c.TraceTypes = append(c.TraceTypes, types.TraceTypePermissioned)
 		applyCannonConfig(c, t, rollupCfg, l2Genesis)
 	}
 }

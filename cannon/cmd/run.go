@@ -248,7 +248,8 @@ func (p *ProcessPreimageOracle) Close() error {
 func (p *ProcessPreimageOracle) wait() {
 	err := p.cmd.Wait()
 	var waitErr error
-	if err, ok := err.(*exec.ExitError); !ok || !err.Success() {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && !exitErr.Success() {
 		waitErr = err
 	}
 	p.cancelIO(fmt.Errorf("%w: pre-image server has exited", waitErr))
@@ -495,26 +496,30 @@ func Run(ctx *cli.Context) error {
 	return nil
 }
 
-var RunCommand = &cli.Command{
-	Name:        "run",
-	Usage:       "Run VM step(s) and generate proof data to replicate onchain.",
-	Description: "Run VM step(s) and generate proof data to replicate onchain. See flags to match when to output a proof, a snapshot, or to stop early.",
-	Action:      Run,
-	Flags: []cli.Flag{
-		RunInputFlag,
-		RunOutputFlag,
-		RunProofAtFlag,
-		RunProofFmtFlag,
-		RunSnapshotAtFlag,
-		RunSnapshotFmtFlag,
-		RunStopAtFlag,
-		RunStopAtPreimageFlag,
-		RunStopAtPreimageTypeFlag,
-		RunStopAtPreimageLargerThanFlag,
-		RunMetaFlag,
-		RunInfoAtFlag,
-		RunPProfCPU,
-		RunDebugFlag,
-		RunDebugInfoFlag,
-	},
+func CreateRunCommand(action cli.ActionFunc) *cli.Command {
+	return &cli.Command{
+		Name:        "run",
+		Usage:       "Run VM step(s) and generate proof data to replicate onchain.",
+		Description: "Run VM step(s) and generate proof data to replicate onchain. See flags to match when to output a proof, a snapshot, or to stop early.",
+		Action:      action,
+		Flags: []cli.Flag{
+			RunInputFlag,
+			RunOutputFlag,
+			RunProofAtFlag,
+			RunProofFmtFlag,
+			RunSnapshotAtFlag,
+			RunSnapshotFmtFlag,
+			RunStopAtFlag,
+			RunStopAtPreimageFlag,
+			RunStopAtPreimageTypeFlag,
+			RunStopAtPreimageLargerThanFlag,
+			RunMetaFlag,
+			RunInfoAtFlag,
+			RunPProfCPU,
+			RunDebugFlag,
+			RunDebugInfoFlag,
+		},
+	}
 }
+
+var RunCommand = CreateRunCommand(Run)

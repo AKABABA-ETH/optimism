@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-import { Proxy } from "src/universal/Proxy.sol";
-import { IDisputeGame } from "src/dispute/interfaces/IDisputeGame.sol";
-import { AnchorStateRegistry, IAnchorStateRegistry } from "src/dispute/AnchorStateRegistry.sol";
-import { IDelayedWETH } from "src/dispute/interfaces/IDelayedWETH.sol";
+// Scripts
 import { StdAssertions } from "forge-std/StdAssertions.sol";
-import "src/dispute/lib/Types.sol";
 import "scripts/deploy/Deploy.s.sol";
+
+// Libraries
+import "src/dispute/lib/Types.sol";
+
+// Interfaces
+import { IProxy } from "src/universal/interfaces/IProxy.sol";
+import { IDisputeGame } from "src/dispute/interfaces/IDisputeGame.sol";
+import { IAnchorStateRegistry } from "src/dispute/interfaces/IAnchorStateRegistry.sol";
+import { IDelayedWETH } from "src/dispute/interfaces/IDelayedWETH.sol";
+import { IFaultDisputeGame } from "src/dispute/interfaces/IFaultDisputeGame.sol";
+import { IPermissionedDisputeGame } from "src/dispute/interfaces/IPermissionedDisputeGame.sol";
 
 /// @notice Deploys new implementations of the FaultDisputeGame contract and its dependencies
 ///         assuming that the DisputeGameFactory contract does not need to be modified. Assumes
@@ -82,48 +89,59 @@ contract FPACOPS2 is Deploy, StdAssertions {
     function deployCannonDisputeGame() internal broadcast {
         console.log("Deploying CannonFaultDisputeGame implementation");
 
-        save(
-            "CannonFaultDisputeGame",
-            address(
-                new FaultDisputeGame({
-                    _gameType: GameTypes.CANNON,
-                    _absolutePrestate: loadMipsAbsolutePrestate(),
-                    _maxGameDepth: cfg.faultGameMaxDepth(),
-                    _splitDepth: cfg.faultGameSplitDepth(),
-                    _clockExtension: Duration.wrap(uint64(cfg.faultGameClockExtension())),
-                    _maxClockDuration: Duration.wrap(uint64(cfg.faultGameMaxClockDuration())),
-                    _vm: IBigStepper(mustGetAddress("Mips")),
-                    _weth: DelayedWETH(mustGetAddress("DelayedWETHProxy")),
-                    _anchorStateRegistry: AnchorStateRegistry(mustGetAddress("AnchorStateRegistryProxy")),
-                    _l2ChainId: cfg.l2ChainID()
-                })
-            )
-        );
+        DeployUtils.create2AndSave({
+            _save: this,
+            _name: "FaultDisputeGame",
+            _nick: "CannonFaultDisputeGame",
+            _args: DeployUtils.encodeConstructor(
+                abi.encodeCall(
+                    IFaultDisputeGame.__constructor__,
+                    (
+                        GameTypes.CANNON,
+                        loadMipsAbsolutePrestate(),
+                        cfg.faultGameMaxDepth(),
+                        cfg.faultGameSplitDepth(),
+                        Duration.wrap(uint64(cfg.faultGameClockExtension())),
+                        Duration.wrap(uint64(cfg.faultGameMaxClockDuration())),
+                        IBigStepper(mustGetAddress("Mips")),
+                        IDelayedWETH(mustGetAddress("DelayedWETHProxy")),
+                        IAnchorStateRegistry(mustGetAddress("AnchorStateRegistryProxy")),
+                        cfg.l2ChainID()
+                    )
+                )
+            ),
+            _salt: _implSalt()
+        });
     }
 
     /// @notice Deploys the PermissionedDisputeGame.
     function deployPermissionedDisputeGame() internal broadcast {
         console.log("Deploying PermissionedDisputeGame implementation");
 
-        save(
-            "PermissionedDisputeGame",
-            address(
-                new PermissionedDisputeGame({
-                    _gameType: GameTypes.PERMISSIONED_CANNON,
-                    _absolutePrestate: loadMipsAbsolutePrestate(),
-                    _maxGameDepth: cfg.faultGameMaxDepth(),
-                    _splitDepth: cfg.faultGameSplitDepth(),
-                    _clockExtension: Duration.wrap(uint64(cfg.faultGameClockExtension())),
-                    _maxClockDuration: Duration.wrap(uint64(cfg.faultGameMaxClockDuration())),
-                    _vm: IBigStepper(mustGetAddress("Mips")),
-                    _weth: DelayedWETH(mustGetAddress("PermissionedDelayedWETHProxy")),
-                    _anchorStateRegistry: AnchorStateRegistry(mustGetAddress("AnchorStateRegistryProxy")),
-                    _l2ChainId: cfg.l2ChainID(),
-                    _proposer: cfg.l2OutputOracleProposer(),
-                    _challenger: cfg.l2OutputOracleChallenger()
-                })
-            )
-        );
+        DeployUtils.create2AndSave({
+            _save: this,
+            _name: "PermissionedDisputeGame",
+            _args: DeployUtils.encodeConstructor(
+                abi.encodeCall(
+                    IPermissionedDisputeGame.__constructor__,
+                    (
+                        GameTypes.PERMISSIONED_CANNON,
+                        loadMipsAbsolutePrestate(),
+                        cfg.faultGameMaxDepth(),
+                        cfg.faultGameSplitDepth(),
+                        Duration.wrap(uint64(cfg.faultGameClockExtension())),
+                        Duration.wrap(uint64(cfg.faultGameMaxClockDuration())),
+                        IBigStepper(mustGetAddress("Mips")),
+                        IDelayedWETH(mustGetAddress("PermissionedDelayedWETHProxy")),
+                        IAnchorStateRegistry(mustGetAddress("AnchorStateRegistryProxy")),
+                        cfg.l2ChainID(),
+                        cfg.l2OutputOracleProposer(),
+                        cfg.l2OutputOracleChallenger()
+                    )
+                )
+            ),
+            _salt: _implSalt()
+        });
     }
 
     /// @notice Initializes the DelayedWETH proxy.
@@ -132,9 +150,9 @@ contract FPACOPS2 is Deploy, StdAssertions {
 
         address wethProxy = mustGetAddress("DelayedWETHProxy");
         address superchainConfigProxy = mustGetAddress("SuperchainConfigProxy");
-        Proxy(payable(wethProxy)).upgradeToAndCall(
+        IProxy(payable(wethProxy)).upgradeToAndCall(
             mustGetAddress("DelayedWETH"),
-            abi.encodeCall(DelayedWETH.initialize, (msg.sender, ISuperchainConfig(superchainConfigProxy)))
+            abi.encodeCall(IDelayedWETH.initialize, (msg.sender, ISuperchainConfig(superchainConfigProxy)))
         );
     }
 
@@ -144,9 +162,9 @@ contract FPACOPS2 is Deploy, StdAssertions {
 
         address wethProxy = mustGetAddress("PermissionedDelayedWETHProxy");
         address superchainConfigProxy = mustGetAddress("SuperchainConfigProxy");
-        Proxy(payable(wethProxy)).upgradeToAndCall(
+        IProxy(payable(wethProxy)).upgradeToAndCall(
             mustGetAddress("DelayedWETH"),
-            abi.encodeCall(DelayedWETH.initialize, (msg.sender, ISuperchainConfig(superchainConfigProxy)))
+            abi.encodeCall(IDelayedWETH.initialize, (msg.sender, ISuperchainConfig(superchainConfigProxy)))
         );
     }
 
@@ -155,13 +173,13 @@ contract FPACOPS2 is Deploy, StdAssertions {
     function transferWethOwnershipFinal(address _proxyAdmin, address _systemOwnerSafe) internal broadcast {
         console.log("Transferring ownership of DelayedWETHProxy");
 
-        DelayedWETH weth = DelayedWETH(mustGetAddress("DelayedWETHProxy"));
+        IDelayedWETH weth = IDelayedWETH(mustGetAddress("DelayedWETHProxy"));
 
         // Transfer the ownership of the DelayedWETH to the SystemOwnerSafe.
         weth.transferOwnership(_systemOwnerSafe);
 
         // Transfer the admin rights of the DelayedWETHProxy to the ProxyAdmin.
-        Proxy prox = Proxy(payable(address(weth)));
+        IProxy prox = IProxy(payable(address(weth)));
         prox.changeAdmin(_proxyAdmin);
     }
 
@@ -170,13 +188,13 @@ contract FPACOPS2 is Deploy, StdAssertions {
     function transferPermissionedWETHOwnershipFinal(address _proxyAdmin, address _systemOwnerSafe) internal broadcast {
         console.log("Transferring ownership of permissioned DelayedWETHProxy");
 
-        DelayedWETH weth = DelayedWETH(mustGetAddress("PermissionedDelayedWETHProxy"));
+        IDelayedWETH weth = IDelayedWETH(mustGetAddress("PermissionedDelayedWETHProxy"));
 
         // Transfer the ownership of the DelayedWETH to the SystemOwnerSafe.
         weth.transferOwnership(_systemOwnerSafe);
 
         // Transfer the admin rights of the DelayedWETHProxy to the ProxyAdmin.
-        Proxy prox = Proxy(payable(address(weth)));
+        IProxy prox = IProxy(payable(address(weth)));
         prox.changeAdmin(_proxyAdmin);
     }
 
@@ -205,20 +223,20 @@ contract FPACOPS2 is Deploy, StdAssertions {
         ChainAssertions.checkPermissionedDelayedWETH(contracts, cfg, true, _systemOwnerSafe);
 
         // Verify PreimageOracle configuration.
-        PreimageOracle oracle = PreimageOracle(mustGetAddress("PreimageOracle"));
+        IPreimageOracle oracle = IPreimageOracle(mustGetAddress("PreimageOracle"));
         assertEq(oracle.minProposalSize(), cfg.preimageOracleMinProposalSize());
         assertEq(oracle.challengePeriod(), cfg.preimageOracleChallengePeriod());
 
         // Verify MIPS configuration.
-        MIPS mips = MIPS(mustGetAddress("Mips"));
+        IMIPS mips = IMIPS(mustGetAddress("Mips"));
         assertEq(address(mips.oracle()), address(oracle));
 
         // Grab ASR
-        AnchorStateRegistry asr = AnchorStateRegistry(mustGetAddress("AnchorStateRegistryProxy"));
+        IAnchorStateRegistry asr = IAnchorStateRegistry(mustGetAddress("AnchorStateRegistryProxy"));
 
         // Verify FaultDisputeGame configuration.
         address gameAddr = mustGetAddress("CannonFaultDisputeGame");
-        FaultDisputeGame gameImpl = FaultDisputeGame(payable(gameAddr));
+        IFaultDisputeGame gameImpl = IFaultDisputeGame(payable(gameAddr));
         assertEq(gameImpl.maxGameDepth(), cfg.faultGameMaxDepth());
         assertEq(gameImpl.splitDepth(), cfg.faultGameSplitDepth());
         assertEq(gameImpl.clockExtension().raw(), cfg.faultGameClockExtension());
@@ -230,7 +248,7 @@ contract FPACOPS2 is Deploy, StdAssertions {
 
         // Verify security override yoke configuration.
         address soyGameAddr = mustGetAddress("PermissionedDisputeGame");
-        PermissionedDisputeGame soyGameImpl = PermissionedDisputeGame(payable(soyGameAddr));
+        IPermissionedDisputeGame soyGameImpl = IPermissionedDisputeGame(payable(soyGameAddr));
         assertEq(soyGameImpl.proposer(), cfg.l2OutputOracleProposer());
         assertEq(soyGameImpl.challenger(), cfg.l2OutputOracleChallenger());
         assertEq(soyGameImpl.maxGameDepth(), cfg.faultGameMaxDepth());

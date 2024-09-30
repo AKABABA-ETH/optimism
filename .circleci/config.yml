@@ -3,7 +3,7 @@ version: 2.1
 parameters:
   ci_builder_image:
     type: string
-    default: us-docker.pkg.dev/oplabs-tools-artifacts/images/ci-builder:v0.51.0
+    default: us-docker.pkg.dev/oplabs-tools-artifacts/images/ci-builder:v0.53.0
   ci_builder_rust_image:
     type: string
     default: us-docker.pkg.dev/oplabs-tools-artifacts/images/ci-builder-rust:latest
@@ -132,6 +132,23 @@ commands:
           template: basic_fail_1
           branch_pattern: develop
           mentions: "<< parameters.mentions >>"
+
+  run-contracts-check:
+    parameters:
+      command:
+        description: Just command that runs the check
+        type: string
+    steps:
+      - run:
+          name: <<parameters.command>>
+          command: |
+            git reset --hard
+            just <<parameters.command>>
+            git diff --quiet --exit-code
+          working_directory: packages/contracts-bedrock
+          when: always
+          environment:
+            FOUNDRY_PROFILE: ci
 
 jobs:
   cannon-go-lint-and-test:
@@ -658,102 +675,28 @@ jobs:
       - setup_remote_docker:
           docker_layer_caching: true
       - run:
-          name: forge version
+          name: print forge version
           command: forge --version
-      - run:
-        # Semver lock must come second because one of the later steps may modify the cache & force a contracts rebuild.
-          name: semver lock
-          command: |
-            just semver-lock
-            git diff --exit-code semver-lock.json || echo "export SEMVER_LOCK_STATUS=1" >> "$BASH_ENV"
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: check deploy configs
-          command: just validate-deploy-configs || echo "export DEPLOY_CONFIGS_STATUS=1" >> "$BASH_ENV"
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: lint
-          command: |
-            just lint-check || echo "export LINT_STATUS=1" >> "$BASH_ENV"
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: gas snapshot
-          command: |
-            just gas-snapshot-check || echo "export GAS_SNAPSHOT_STATUS=1" >> "$BASH_ENV"
-          environment:
-            FOUNDRY_PROFILE: ci
-          working_directory: packages/contracts-bedrock
-          no_output_timeout: 15m
-      - run:
-          name: invariant docs
-          command: |
-            just autogen-invariant-docs
-            git diff --exit-code ./invariant-docs/*.md || echo "export INVARIANT_DOCS_STATUS=1" >> "$BASH_ENV"
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: snapshots
-          command: |
-            just snapshots-check-no-build || echo "export SNAPSHOTS_STATUS=1" >> "$BASH_ENV"
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: kontrol deployment
-          command: |
-            just kontrol-deployment-check || echo "export KONTROL_DEPLOYMENT_STATUS=1" >> "$BASH_ENV"
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: interfaces
-          command: |
-            just interfaces-check-no-build || echo "export INTERFACES_STATUS=1" >> "$BASH_ENV"
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: size check
-          command: |
-            forge build --sizes --skip "/**/test/**" --skip "/**/scripts/**" || echo "export SIZE_CHECK=1" >> "$BASH_ENV"
-          environment:
-            FOUNDRY_PROFILE: ci
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: check statuses
-          command: |
-            if [[ "$LINT_STATUS" -ne 0 ]]; then
-              echo "Linting failed, see job output for details."
-              FAILED=1
-            fi
-            if [[ "$GAS_SNAPSHOT_STATUS" -ne 0 ]]; then
-              echo "Gas snapshot failed, see job output for details."
-              FAILED=1
-            fi
-            if [[ "$SEMVER_LOCK_STATUS" -ne 0 ]]; then
-              echo "Semver lock failed, see job output for details."
-              FAILED=1
-            fi
-            if [[ "$INVARIANT_DOCS_STATUS" -ne 0 ]]; then
-              echo "Invariant docs failed, see job output for details."
-              FAILED=1
-            fi
-            if [[ "$DEPLOY_CONFIGS_STATUS" -ne 0 ]]; then
-              echo "Deploy config check failed, see job output for details."
-              FAILED=1
-            fi
-            if [[ "$SNAPSHOTS_STATUS" -ne 0 ]]; then
-              echo "Snapshots check failed, see job output for details."
-              FAILED=1
-            fi
-            if [[ "$KONTROL_DEPLOYMENT_STATUS" -ne 0 ]]; then
-              echo "Kontrol deployment check failed, see job output for details."
-              FAILED=1
-            fi
-            if [[ "$INTERFACES_STATUS" -ne 0 ]]; then
-              echo "Interface check failed, see job output for details."
-              FAILED=1
-            fi
-            if [[ "$SIZE_CHECK" -ne 0 ]]; then
-              echo "Contract(s) exceed size limit, see job output for details."
-              FAILED=1
-            fi
-            if [[ "$FAILED" -ne 0 ]]; then
-              exit 1
-            fi
+      - run-contracts-check:
+          command: semver-lock
+      - run-contracts-check:
+          command: semver-diff-check-no-build
+      - run-contracts-check:
+          command: semver-natspec-check-no-build
+      - run-contracts-check:
+          command: validate-deploy-configs
+      - run-contracts-check:
+          command: lint
+      - run-contracts-check:
+          command: gas-snapshot-check
+      - run-contracts-check:
+          command: snapshots-check-no-build
+      - run-contracts-check:
+          command: kontrol-deployment-check
+      - run-contracts-check:
+          command: interfaces-check-no-build
+      - run-contracts-check:
+          command: size-check
 
   contracts-bedrock-validate-spacers:
     docker:
@@ -771,6 +714,10 @@ jobs:
           working_directory: packages/contracts-bedrock
 
   todo-issues:
+    parameters:
+      check_closed:
+        type: boolean
+        default: true
     machine:
       image: <<pipeline.parameters.base_image>>
     steps:
@@ -780,7 +727,7 @@ jobs:
           command: sudo apt-get install -y ripgrep
       - run:
           name: Check TODO issues
-          command: ./ops/scripts/todo-checker.sh --verbose
+          command: ./ops/scripts/todo-checker.sh --verbose <<#parameters.check_closed>> --check-closed <</parameters.check_closed>>
       - notify-failures-on-develop
 
   fuzz-golang:
@@ -844,7 +791,7 @@ jobs:
           name: run Go linter
           command: |
             # Identify how many cores it defaults to
-            golangci-lint --help | grep concurrency
+            golangci-lint run --help | grep concurrency
             make lint-go
           working_directory: .
       - save_cache:
@@ -885,7 +832,7 @@ jobs:
           command: |
             echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
             sudo apt update
-            sudo apt install kurtosis-cli
+            sudo apt install kurtosis-cli=1.3.0
             kurtosis engine start
       - checkout
       - when:
@@ -1102,6 +1049,9 @@ jobs:
           name: Restore cannon prestate cache
           key: cannon-prestate-{{ checksum "./cannon/bin/cannon" }}-{{ checksum "op-program/bin/op-program-client.elf" }}
       - run:
+          name: Sanitize op-program guest
+          command: make -f cannon/Makefile sanitize-program GUEST_PROGRAM=op-program/bin/op-program-client.elf
+      - run:
           name: generate cannon prestate
           command: make cannon-prestate
       - save_cache:
@@ -1173,6 +1123,8 @@ jobs:
               echo 'export EXPECTED_PRESTATE_HASH="0x03e806a2859a875267a563462a06d4d1d1b455a9efee959a46e21e54b6caf69a"' >> $BASH_ENV
             elif [[ "<<parameters.version>>" == "1.3.1-rc.2" ]]; then
               echo 'export EXPECTED_PRESTATE_HASH="0x038512e02c4c3f7bdaec27d00edf55b7155e0905301e1a88083e4e0a6764d54c"' >> $BASH_ENV
+            elif [[ "<<parameters.version>>" == "1.3.1" ]]; then
+              echo 'export EXPECTED_PRESTATE_HASH="0x038512e02c4c3f7bdaec27d00edf55b7155e0905301e1a88083e4e0a6764d54c"' >> $BASH_ENV
             else
               echo "Unknown prestate version <<parameters.version>>"
               exit 1
@@ -1194,184 +1146,31 @@ jobs:
       - notify-failures-on-develop:
           mentions: "@proofs-squad"
 
-  devnet:
-    machine:
-      image: <<pipeline.parameters.base_image>>
-    parameters:
-      variant:
-        type: string
-    environment:
-      DOCKER_BUILDKIT: 1
-      DEVNET_NO_BUILD: 'true'
-      # Default value; Can be overridden.
-      DEVNET_L2OO: 'false'
-      DEVNET_ALTDA: 'false'
+  cannon-stf-verify:
+    docker:
+      - image: <<pipeline.parameters.ci_builder_image>>
     steps:
       - checkout
-      - attach_workspace: { at: "." }
-      - check-changed:
-          patterns: op-(.+),packages,ops-bedrock,bedrock-devnet
-      - when:
-          condition:
-            equal: ['altda', <<parameters.variant>>]
-          steps:
-            - run:
-                name: Set DEVNET_ALTDA = true
-                command: echo 'export DEVNET_ALTDA=true' >> $BASH_ENV
-      - when:
-          condition:
-            equal: ['altda-generic', <<parameters.variant>>]
-          steps:
-            - run:
-                name: Set DEVNET_ALTDA = true
-                command: echo 'export DEVNET_ALTDA=true' >> $BASH_ENV
-            - run:
-                name: Set GENERIC_ALTDA = true
-                command: echo 'export GENERIC_ALTDA=true' >> $BASH_ENV
+      - setup_remote_docker
       - restore_cache:
           name: Restore Go modules cache
           key: gomod-{{ checksum "go.sum" }}
       - restore_cache:
           name: Restore Go build cache
           keys:
-            - golang-build-cache-devnet-{{ checksum "go.sum" }}
-            - golang-build-cache-devnet-
+            - golang-build-cache-cannon-stf-verify-{{ checksum "go.sum" }}
+            - golang-build-cache-cannon-stf-verify-
       - run:
-          name: Install latest golang
-          command: |
-            VER=$(jq -r .go < versions.json)
-            sudo rm -rf /usr/local/go
-            wget "https://go.dev/dl/go${VER}.linux-amd64.tar.gz" -O - | sudo tar -C /usr/local -xz
-            export PATH=$PATH:/usr/local/go/bin
-            go version
+          name: Build cannon
+          command: make cannon
       - run:
-          name: Install Geth
-          command: |
-            VER=$(jq -r .geth_release < versions.json)
-            wget "https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-amd64-${VER}.tar.gz" -O - | tar xz
-            sudo cp "geth-alltools-linux-amd64-${VER}"/* /usr/local/bin
-      - run:
-          name: Install eth2-testnet-genesis
-          command: |
-            go install -v github.com/protolambda/eth2-testnet-genesis@$(jq -r .eth2_testnet_genesis < versions.json)
-      - run:
-          name: foundryup
-          command: |
-            curl -L https://foundry.paradigm.xyz | bash
-            source $HOME/.bashrc
-            foundryup
-            echo 'export PATH=$HOME/.foundry/bin:$PATH' >> $BASH_ENV
-            source $HOME/.bashrc
-            forge --version
-      - run:
-          name: Install Just
-          command: |
-            VER=$(jq -r .just < versions.json)
-            curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to $HOME/bin --tag "${VER}"
-            echo 'export PATH="${PATH}:$HOME/bin"' >> $BASH_ENV
-      - install-contracts-dependencies
-      - when:
-          condition:
-            not:
-              equal: ['default', <<parameters.variant>>]
-          steps:
-            - run:
-                name: Use non-default devnet allocs
-                command: rm -r .devnet && mv .devnet-<<parameters.variant>> .devnet
-      - run:
-          name: Load and tag docker images
-          command: |
-            IMAGE_BASE_PREFIX="us-docker.pkg.dev/oplabs-tools-artifacts/images"
-            # Load from previous docker-build job
-            docker load < "./op-node.tar"
-            docker load < "./op-proposer.tar"
-            docker load < "./op-batcher.tar"
-            docker load < "./op-challenger.tar"
-            docker load < "./da-server.tar"
-            # rename to the tags that the docker-compose of the devnet expects
-            docker tag "$IMAGE_BASE_PREFIX/op-node:<<pipeline.git.revision>>" "$IMAGE_BASE_PREFIX/op-node:devnet"
-            docker tag "$IMAGE_BASE_PREFIX/op-proposer:<<pipeline.git.revision>>" "$IMAGE_BASE_PREFIX/op-proposer:devnet"
-            docker tag "$IMAGE_BASE_PREFIX/op-batcher:<<pipeline.git.revision>>" "$IMAGE_BASE_PREFIX/op-batcher:devnet"
-            docker tag "$IMAGE_BASE_PREFIX/op-challenger:<<pipeline.git.revision>>" "$IMAGE_BASE_PREFIX/op-challenger:devnet"
-            docker tag "$IMAGE_BASE_PREFIX/da-server:<<pipeline.git.revision>>" "$IMAGE_BASE_PREFIX/da-server:devnet"
-      - run:
-          name: Bring up the stack
-          command: |
-            # Specify like this to avoid a forced rebuild of the contracts + devnet L1
-            PYTHONPATH=./bedrock-devnet python3 ./bedrock-devnet/main.py --monorepo-dir=.
-            echo "Waiting for 10 seconds to give the devnet time to settle in..."
-            sleep 10
-      - run:
-          name: Test the stack
-          command: make devnet-test
-      - run:
-          name: Dump op-node logs
-          command: |
-            docker logs ops-bedrock-op-node-1 || echo "No logs."
-          when: on_fail
-      - run:
-          name: Dump op-geth logs
-          command: |
-            docker logs ops-bedrock-l2-1 || echo "No logs."
-          when: on_fail
-      - run:
-          name: Dump l1 logs
-          command: |
-            docker logs ops-bedrock-l1-1 || echo "No logs."
-          when: on_fail
-      - run:
-          name: Dump l1-bn logs
-          command: |
-            docker logs ops-bedrock-l1-bn-1 || echo "No logs."
-          when: on_fail
-      - run:
-          name: Dump l1-vc logs
-          command: |
-            docker logs ops-bedrock-l1-vc-1 || echo "No logs."
-          when: on_fail
-      - run:
-          name: Dump op-batcher logs
-          command: |
-            docker logs ops-bedrock-op-batcher-1 || echo "No logs."
-          when: on_fail
-      - run:
-          name: Dump op-proposer logs
-          command: |
-            docker logs ops-bedrock-op-proposer-1 || echo "No logs."
-          when: on_fail
-      - run:
-          name: Dump op-challenger logs
-          command: |
-            docker logs ops-bedrock-op-challenger-1 || echo "No logs."
-          when: on_fail
-      - run:
-          name: Dump da-server logs
-          command: |
-            docker logs ops-bedrock-da-server-1 || echo "No logs."
-          when: on_fail
-      - run:
-          name: Log deployment artifact
-          command: |
-            cat broadcast/Deploy.s.sol/900/run-latest.json || echo "No deployment file found"
-          when: on_fail
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: Log devnet config
-          command: |
-            cat deploy-config/devnetL1.json || echo "No devnet config found"
-          when: on_fail
-          working_directory: packages/contracts-bedrock
-      - run:
-          name: Log artifacts directory
-          command: |
-            ls -R forge-artifacts || echo "No forge artifacts found"
-          when: on_fail
-          working_directory: packages/contracts-bedrock
+          name: Verify the Cannon STF
+          command: make -C ./cannon cannon-stf-verify
       - save_cache:
           name: Save Go build cache
-          key: golang-build-cache-devnet-{{ checksum "go.sum" }}
+          key: golang-build-cache-cannon-stf-verify-{{ checksum "go.sum" }}
           paths:
-            - /home/circleci/.cache/go-build
+            - "/root/.cache/go-build"
 
   semgrep-scan:
     parameters:
@@ -1659,6 +1458,9 @@ workflows:
                 - op-program
                 - op-service
                 - op-supervisor
+      - go-test:
+          name: semver-natspec-tests
+          module: packages/contracts-bedrock/scripts/checks/semver-natspec
       - go-test-kurtosis:
           name: op-chain-ops-integration
           module: op-chain-ops
@@ -1723,6 +1525,12 @@ workflows:
             - op-e2e-fault-proof-tests
             - op-e2e-action-tests
             - op-e2e-action-tests-altda
+            # Not needed for the devnet but we want to make sure they build successfully
+            - cannon-docker-build
+            - op-dispute-mon-docker-build
+            - op-program-docker-build
+            - op-supervisor-docker-build
+            - proofs-tools-docker-build
       - docker-build:
           name: <<matrix.docker_name>>-docker-build
           docker_tags: <<pipeline.git.revision>>,<<pipeline.git.branch>>
@@ -1740,21 +1548,11 @@ workflows:
                 - op-conductor
                 - da-server
                 - op-supervisor
+                - op-deployer
+                - cannon
       - cannon-prestate:
           requires:
             - go-mod-download
-      - devnet:
-          matrix:
-            parameters:
-              variant: ["default", "altda", "altda-generic"]
-          requires:
-            - contracts-bedrock-build
-            - op-batcher-docker-build
-            - op-proposer-docker-build
-            - op-node-docker-build
-            - op-challenger-docker-build
-            - da-server-docker-build
-            - cannon-prestate
       - check-generated-mocks-op-node
       - check-generated-mocks-op-service
       - cannon-go-lint-and-test:
@@ -1763,6 +1561,9 @@ workflows:
           skip_slow_tests: true
           notify: true
       - cannon-build-test-vectors
+      - todo-issues:
+          name: todo-issues-check
+          check_closed: false
       - shellcheck/check:
           name: shell-check
           # We don't need the `exclude` key as the orb detects the `.shellcheckrc`
@@ -1780,7 +1581,7 @@ workflows:
           type: approval
           filters:
             tags:
-              only: /^(da-server|ci-builder(-rust)?|proofs-tools|ufm-[a-z0-9\-]*|op-[a-z0-9\-]*)\/v.*/
+              only: /^(da-server|ci-builder(-rust)?|proofs-tools|cannon|ufm-[a-z0-9\-]*|op-[a-z0-9\-]*)\/v.*/
             branches:
               ignore: /.*/
       # Standard (medium) cross-platform docker images go here
@@ -1797,6 +1598,8 @@ workflows:
                 - da-server
                 - op-ufm
                 - op-supervisor
+                - op-deployer
+                - cannon
           name: <<matrix.docker_name>>-docker-release
           docker_tags: <<pipeline.git.revision>>
           platforms: "linux/amd64,linux/arm64"
@@ -1825,6 +1628,8 @@ workflows:
                 - da-server
                 - op-ufm
                 - op-supervisor
+                - op-deployer
+                - cannon
           name: <<matrix.op_component>>-cross-platform
           requires:
             - op-node-docker-release
@@ -1836,6 +1641,8 @@ workflows:
             - da-server-docker-release
             - op-ufm-docker-release
             - op-supervisor-docker-release
+            - op-deployer-docker-release
+            - cannon-docker-release
       # Standard (xlarge) AMD-only docker images go here
       - docker-build:
           matrix:
@@ -1870,7 +1677,7 @@ workflows:
 
   scheduled-fpp:
     when:
-      equal: [ build_four_hours, <<pipeline.schedule.name>> ]
+      equal: [ build_hourly, <<pipeline.schedule.name>> ]
     jobs:
       - fpp-verify:
           context:
@@ -1898,6 +1705,9 @@ workflows:
       - cannon-prestate:
           requires:
             - go-mod-download
+      - cannon-stf-verify:
+          requires:
+            - go-mod-download
       - contracts-bedrock-build:
           skip_pattern: test
           context:
@@ -1915,6 +1725,7 @@ workflows:
           requires:
             - contracts-bedrock-build
             - cannon-prestate
+            - cannon-stf-verify
           context:
             - slack
 
@@ -1965,6 +1776,7 @@ workflows:
                 - op-dispute-mon
                 - op-conductor
                 - op-supervisor
+                - cannon
           name: <<matrix.docker_name>>-docker-publish
           docker_tags: <<pipeline.git.revision>>,<<pipeline.git.branch>>
           platforms: "linux/amd64,linux/arm64"
@@ -1984,6 +1796,7 @@ workflows:
                 - op-dispute-mon
                 - op-conductor
                 - op-supervisor
+                - cannon
           name: <<matrix.op_component>>-cross-platform
           requires:
             - <<matrix.op_component>>-docker-publish

@@ -33,12 +33,14 @@ type SuperFaultProofConfig struct {
 	DisputeGameFinalityDelaySeconds *big.Int
 }
 
-type OPSMImplementationsConfig struct {
+type OPCMImplementationsConfig struct {
 	Release string
 
 	FaultProof SuperFaultProofConfig
 
 	UseInterop bool // to deploy Interop implementation contracts, instead of the regular ones.
+
+	StandardVersionsToml string // serialized string of superchain-registry 'standard-versions-mainnet.toml' file
 }
 
 type SuperchainConfig struct {
@@ -49,7 +51,7 @@ type SuperchainConfig struct {
 
 	Paused bool
 
-	Implementations OPSMImplementationsConfig
+	Implementations OPCMImplementationsConfig
 
 	genesis.SuperchainL1DeployConfig
 }
@@ -73,7 +75,8 @@ type L2Config struct {
 	Challenger        common.Address
 	SystemConfigOwner common.Address
 	genesis.L2InitializationConfig
-	Prefund map[common.Address]*big.Int
+	Prefund   map[common.Address]*big.Int
+	SaltMixer string
 }
 
 func (c *L2Config) Check(log log.Logger) error {
