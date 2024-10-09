@@ -3,7 +3,6 @@ pragma solidity ^0.8.0;
 
 // Testing
 import { VmSafe } from "forge-std/Vm.sol";
-import { Script } from "forge-std/Script.sol";
 import { console2 as console } from "forge-std/console2.sol";
 import { stdJson } from "forge-std/StdJson.sol";
 import { AlphabetVM } from "test/mocks/AlphabetVM.sol";
@@ -40,17 +39,15 @@ import { IProxy } from "src/universal/interfaces/IProxy.sol";
 import { IProxyAdmin } from "src/universal/interfaces/IProxyAdmin.sol";
 import { IOptimismPortal } from "src/L1/interfaces/IOptimismPortal.sol";
 import { IOptimismPortal2 } from "src/L1/interfaces/IOptimismPortal2.sol";
-import { IOptimismPortalInterop } from "src/L1/interfaces/IOptimismPortalInterop.sol";
 import { ICrossDomainMessenger } from "src/universal/interfaces/ICrossDomainMessenger.sol";
 import { IL1CrossDomainMessenger } from "src/L1/interfaces/IL1CrossDomainMessenger.sol";
 import { IL2OutputOracle } from "src/L1/interfaces/IL2OutputOracle.sol";
 import { ISuperchainConfig } from "src/L1/interfaces/ISuperchainConfig.sol";
 import { ISystemConfig } from "src/L1/interfaces/ISystemConfig.sol";
-import { ISystemConfigInterop } from "src/L1/interfaces/ISystemConfigInterop.sol";
 import { IDataAvailabilityChallenge } from "src/L1/interfaces/IDataAvailabilityChallenge.sol";
 import { IL1ERC721Bridge } from "src/L1/interfaces/IL1ERC721Bridge.sol";
 import { IL1StandardBridge } from "src/L1/interfaces/IL1StandardBridge.sol";
-import { IProtocolVersions, ProtocolVersion } from "src/L1/interfaces/IProtocolVersions.sol";
+import { ProtocolVersion } from "src/L1/interfaces/IProtocolVersions.sol";
 import { IBigStepper } from "src/dispute/interfaces/IBigStepper.sol";
 import { IDisputeGameFactory } from "src/dispute/interfaces/IDisputeGameFactory.sol";
 import { IDisputeGame } from "src/dispute/interfaces/IDisputeGame.sol";
@@ -236,8 +233,8 @@ contract Deploy is Deployer {
     )
         public
     {
-        require(_superchainConfigProxy != address(0), "must specify address for superchain config proxy");
-        require(_protocolVersionsProxy != address(0), "must specify address for protocol versions proxy");
+        require(_superchainConfigProxy != address(0), "Deploy: must specify address for superchain config proxy");
+        require(_protocolVersionsProxy != address(0), "Deploy: must specify address for protocol versions proxy");
 
         vm.chainId(cfg.l1ChainID());
 
@@ -357,6 +354,7 @@ contract Deploy is Deployer {
         dii.set(dii.challengePeriodSeconds.selector, cfg.preimageOracleChallengePeriod());
         dii.set(dii.proofMaturityDelaySeconds.selector, cfg.proofMaturityDelaySeconds());
         dii.set(dii.disputeGameFinalityDelaySeconds.selector, cfg.disputeGameFinalityDelaySeconds());
+        dii.set(dii.mipsVersion.selector, Config.useMultithreadedCannon() ? 2 : 1);
         string memory release = "dev";
         dii.set(dii.release.selector, release);
         dii.set(
@@ -1289,7 +1287,9 @@ contract Deploy is Deployer {
         commands[1] = "-c";
         commands[2] = string.concat("[[ -f ", filePath, " ]] && echo \"present\"");
         if (Process.run(commands).length == 0) {
-            revert("Cannon prestate dump not found, generate it with `make cannon-prestate` in the monorepo root.");
+            revert(
+                "Deploy: cannon prestate dump not found, generate it with `make cannon-prestate` in the monorepo root"
+            );
         }
         commands[2] = string.concat("cat ", filePath, " | jq -r .pre");
         mipsAbsolutePrestate_ = Claim.wrap(abi.decode(Process.run(commands), (bytes32)));
@@ -1310,7 +1310,7 @@ contract Deploy is Deployer {
         commands[2] = string.concat("[[ -f ", filePath, " ]] && echo \"present\"");
         if (Process.run(commands).length == 0) {
             revert(
-                "MT-Cannon prestate dump not found, generate it with `make cannon-prestate-mt` in the monorepo root."
+                "Deploy: MT-Cannon prestate dump not found, generate it with `make cannon-prestate-mt` in the monorepo root"
             );
         }
         commands[2] = string.concat("cat ", filePath, " | jq -r .pre");
