@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/opcm"
+
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/state"
 
 	op_service "github.com/ethereum-optimism/optimism/op-service"
@@ -118,9 +119,9 @@ func Init(cfg InitConfig) error {
 		l2ChainIDBig := l2ChainID.Big()
 		intent.Chains = append(intent.Chains, &state.ChainIntent{
 			ID:                         l2ChainID,
-			BaseFeeVaultRecipient:      common.Address{},
-			L1FeeVaultRecipient:        common.Address{},
-			SequencerFeeVaultRecipient: common.Address{},
+			BaseFeeVaultRecipient:      addrFor(devkeys.BaseFeeVaultRecipientRole.Key(l2ChainIDBig)),
+			L1FeeVaultRecipient:        addrFor(devkeys.L1FeeVaultRecipientRole.Key(l2ChainIDBig)),
+			SequencerFeeVaultRecipient: addrFor(devkeys.SequencerFeeVaultRecipientRole.Key(l2ChainIDBig)),
 			Eip1559Denominator:         50,
 			Eip1559Elasticity:          6,
 			Roles: state.ChainRoles{
