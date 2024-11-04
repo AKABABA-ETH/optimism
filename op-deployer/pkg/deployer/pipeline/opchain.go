@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/artifacts"
+
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 	"github.com/ethereum-optimism/optimism/op-service/jsonutil"
 
@@ -29,21 +31,43 @@ func DeployOPChainLiveStrategy(ctx context.Context, env *Env, bundle ArtifactsBu
 		return fmt.Errorf("failed to get chain intent: %w", err)
 	}
 
-	input, err := makeDCI(intent, thisIntent, chainID, st)
-	if err != nil {
-		return fmt.Errorf("error making deploy OP chain input: %w", err)
+	var deployFunc func() (opcm.DeployOPChainOutput, error)
+	switch intent.L1ContractsLocator.Tag {
+	case standard.ContractsV160Tag, standard.ContractsV170Beta1L2Tag:
+		deployFunc = func() (opcm.DeployOPChainOutput, error) {
+			input, err := makeDCIV160(intent, thisIntent, chainID, st)
+			if err != nil {
+				return opcm.DeployOPChainOutput{}, fmt.Errorf("error making deploy OP chain input: %w", err)
+			}
+
+			return opcm.DeployOPChainRawV160(ctx,
+				env.L1Client,
+				env.Broadcaster,
+				env.Deployer,
+				bundle.L1,
+				input,
+			)
+		}
+	default:
+		deployFunc = func() (opcm.DeployOPChainOutput, error) {
+			input, err := makeDCIIsthmus(intent, thisIntent, chainID, st)
+			if err != nil {
+				return opcm.DeployOPChainOutput{}, fmt.Errorf("error making deploy OP chain input: %w", err)
+			}
+
+			return opcm.DeployOPChainRawIsthmus(ctx,
+				env.L1Client,
+				env.Broadcaster,
+				env.Deployer,
+				bundle.L1,
+				input,
+			)
+		}
 	}
 
 	var dco opcm.DeployOPChainOutput
 	lgr.Info("deploying OP chain using existing OPCM", "id", chainID.Hex(), "opcmAddress", st.ImplementationsDeployment.OpcmProxyAddress.Hex())
-	dco, err = opcm.DeployOPChainRaw(
-		ctx,
-		env.L1Client,
-		env.Broadcaster,
-		env.Deployer,
-		bundle.L1,
-		input,
-	)
+	dco, err = deployFunc()
 	if err != nil {
 		return fmt.Errorf("error deploying OP chain: %w", err)
 	}
@@ -122,7 +146,7 @@ func conditionallySetImplementationAddresses(ctx context.Context, client *ethcli
 	return nil
 }
 
-func setMipsSingletonAddress(ctx context.Context, client *ethclient.Client, l1ArtifactsLocator *opcm.ArtifactsLocator, errCh chan error, opcmProxyAddress common.Address, singletonAddress *common.Address) {
+func setMipsSingletonAddress(ctx context.Context, client *ethclient.Client, l1ArtifactsLocator *artifacts.Locator, errCh chan error, opcmProxyAddress common.Address, singletonAddress *common.Address) {
 	if !l1ArtifactsLocator.IsTag() {
 		errCh <- errors.New("L1 contracts locator is not a tag, cannot set MIPS singleton address")
 		return
@@ -158,19 +182,33 @@ func DeployOPChainGenesisStrategy(env *Env, intent *state.Intent, st *state.Stat
 		return fmt.Errorf("failed to get chain intent: %w", err)
 	}
 
-	input, err := makeDCI(intent, thisIntent, chainID, st)
-	if err != nil {
-		return fmt.Errorf("error making deploy OP chain input: %w", err)
+	var deployFunc func() (opcm.DeployOPChainOutput, error)
+	switch intent.L1ContractsLocator.Tag {
+	case standard.ContractsV160Tag, standard.ContractsV170Beta1L2Tag:
+		deployFunc = func() (opcm.DeployOPChainOutput, error) {
+			input, err := makeDCIV160(intent, thisIntent, chainID, st)
+			if err != nil {
+				return opcm.DeployOPChainOutput{}, fmt.Errorf("error making deploy OP chain input: %w", err)
+			}
+
+			return opcm.DeployOPChainV160(env.L1ScriptHost, input)
+		}
+	default:
+		deployFunc = func() (opcm.DeployOPChainOutput, error) {
+			input, err := makeDCIIsthmus(intent, thisIntent, chainID, st)
+			if err != nil {
+				return opcm.DeployOPChainOutput{}, fmt.Errorf("error making deploy OP chain input: %w", err)
+			}
+
+			return opcm.DeployOPChainIsthmus(env.L1ScriptHost, input)
+		}
 	}
 
 	env.L1ScriptHost.ImportState(st.L1StateDump.Data)
 
 	var dco opcm.DeployOPChainOutput
 	lgr.Info("deploying OP chain using local allocs", "id", chainID.Hex())
-	dco, err = opcm.DeployOPChain(
-		env.L1ScriptHost,
-		input,
-	)
+	dco, err = deployFunc()
 	if err != nil {
 		return fmt.Errorf("error deploying OP chain: %w", err)
 	}
@@ -190,7 +228,7 @@ type ChainProofParams struct {
 	DangerouslyAllowCustomDisputeParameters bool        `json:"dangerouslyAllowCustomDisputeParameters" toml:"dangerouslyAllowCustomDisputeParameters"`
 }
 
-func makeDCI(intent *state.Intent, thisIntent *state.ChainIntent, chainID common.Hash, st *state.State) (opcm.DeployOPChainInput, error) {
+func makeDCIV160(intent *state.Intent, thisIntent *state.ChainIntent, chainID common.Hash, st *state.State) (opcm.DeployOPChainInputV160, error) {
 	proofParams, err := jsonutil.MergeJSON(
 		ChainProofParams{
 			DisputeGameType:         standard.DisputeGameType,
@@ -204,10 +242,10 @@ func makeDCI(intent *state.Intent, thisIntent *state.ChainIntent, chainID common
 		thisIntent.DeployOverrides,
 	)
 	if err != nil {
-		return opcm.DeployOPChainInput{}, fmt.Errorf("error merging proof params from overrides: %w", err)
+		return opcm.DeployOPChainInputV160{}, fmt.Errorf("error merging proof params from overrides: %w", err)
 	}
 
-	return opcm.DeployOPChainInput{
+	return opcm.DeployOPChainInputV160{
 		OpChainProxyAdminOwner:       thisIntent.Roles.L1ProxyAdminOwner,
 		SystemConfigOwner:            thisIntent.Roles.SystemConfigOwner,
 		Batcher:                      thisIntent.Roles.Batcher,
@@ -227,6 +265,18 @@ func makeDCI(intent *state.Intent, thisIntent *state.ChainIntent, chainID common
 		DisputeClockExtension:        proofParams.DisputeClockExtension,   // 3 hours (input in seconds)
 		DisputeMaxClockDuration:      proofParams.DisputeMaxClockDuration, // 3.5 days (input in seconds)
 		AllowCustomDisputeParameters: proofParams.DangerouslyAllowCustomDisputeParameters,
+	}, nil
+}
+
+func makeDCIIsthmus(intent *state.Intent, thisIntent *state.ChainIntent, chainID common.Hash, st *state.State) (opcm.DeployOPChainInputIsthmus, error) {
+	dci, err := makeDCIV160(intent, thisIntent, chainID, st)
+	if err != nil {
+		return opcm.DeployOPChainInputIsthmus{}, fmt.Errorf("error making deploy OP chain input: %w", err)
+	}
+
+	return opcm.DeployOPChainInputIsthmus{
+		DeployOPChainInputV160: dci,
+		SystemConfigFeeAdmin:   common.Address{'D', 'E', 'A', 'D'},
 	}, nil
 }
 

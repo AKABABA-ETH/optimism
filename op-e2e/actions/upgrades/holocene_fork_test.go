@@ -170,12 +170,13 @@ func TestHoloceneInvalidPayload(gt *testing.T) {
 	require.Len(t, b.Transactions(), 2)
 
 	// buffer into the batcher, invalidating the tx via signature zeroing
-	env.Batcher.ActL2BatchBuffer(t, func(block *types.Block) {
+	env.Batcher.ActL2BatchBuffer(t, func(block *types.Block) *types.Block {
 		// Replace the tx with one that has a bad signature.
 		txs := block.Transactions()
 		newTx, err := txs[1].WithSignature(env.Alice.L2.Signer(), make([]byte, 65))
 		require.NoError(t, err)
 		txs[1] = newTx
+		return block
 	})
 
 	// generate two more empty blocks
@@ -190,8 +191,7 @@ func TestHoloceneInvalidPayload(gt *testing.T) {
 	env.Seq.ActL1HeadSignal(t)
 	env.Seq.ActL2PipelineFull(t)
 
-	// TODO(12695): need to properly update safe after completed L1 block derivation
-	l2Safe := env.Seq.L2PendingSafe()
+	l2Safe := env.Seq.L2Safe()
 	require.EqualValues(t, invalidNum, l2Safe.Number)
 	require.NotEqual(t, l2Safe.Hash, l2Unsafe.Hash, // old L2Unsafe above
 		"block-3 should have been replaced by deposit-only version")

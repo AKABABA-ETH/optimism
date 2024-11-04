@@ -64,8 +64,8 @@ contract MIPS64 is ISemver {
     }
 
     /// @notice The semantic version of the MIPS64 contract.
-    /// @custom:semver 1.0.0-beta.1
-    string public constant version = "1.0.0-beta.1";
+    /// @custom:semver 1.0.0-beta.3
+    string public constant version = "1.0.0-beta.3";
 
     /// @notice The preimage oracle contract.
     IPreimageOracle internal immutable ORACLE;
@@ -272,20 +272,20 @@ contract MIPS64 is ISemver {
                 fun: fun
             });
             bool memUpdated;
-            uint64 memAddr;
-            (state.memRoot, memUpdated, memAddr) = ins.execMipsCoreStepLogic(coreStepArgs);
+            uint64 effMemAddr;
+            (state.memRoot, memUpdated, effMemAddr) = ins.execMipsCoreStepLogic(coreStepArgs);
             setStateCpuScalars(thread, cpu);
             updateCurrentThreadRoot();
             if (memUpdated) {
-                handleMemoryUpdate(state, memAddr);
+                handleMemoryUpdate(state, effMemAddr);
             }
 
             return outputState();
         }
     }
 
-    function handleMemoryUpdate(State memory _state, uint64 _memAddr) internal pure {
-        if (_memAddr == (arch.ADDRESS_MASK & _state.llAddress)) {
+    function handleMemoryUpdate(State memory _state, uint64 _effMemAddr) internal pure {
+        if (_effMemAddr == (arch.ADDRESS_MASK & _state.llAddress)) {
             // Reserved address was modified, clear the reservation
             clearLLMemoryReservation(_state);
         }
@@ -597,6 +597,8 @@ contract MIPS64 is ISemver {
             } else if (syscall_no == sys.SYS_CLOSE) {
                 // ignored
             } else if (syscall_no == sys.SYS_PREAD64) {
+                // ignored
+            } else if (syscall_no == sys.SYS_STAT) {
                 // ignored
             } else if (syscall_no == sys.SYS_FSTAT) {
                 // ignored

@@ -26,6 +26,9 @@ const (
 	DisputeSplitDepth               uint64 = 30
 	DisputeClockExtension           uint64 = 10800
 	DisputeMaxClockDuration         uint64 = 302400
+
+	ContractsV160Tag        = "op-contracts/v1.6.0"
+	ContractsV170Beta1L2Tag = "op-contracts/v1.7.0-beta.1+l2-contracts"
 )
 
 var DisputeAbsolutePrestate = common.HexToHash("0x038512e02c4c3f7bdaec27d00edf55b7155e0905301e1a88083e4e0a6764d54c")
@@ -40,9 +43,9 @@ var L1VersionsSepolia L1Versions
 
 var L1VersionsMainnet L1Versions
 
-var DefaultL1ContractsTag = "op-contracts/v1.6.0"
+var DefaultL1ContractsTag = ContractsV160Tag
 
-var DefaultL2ContractsTag = "op-contracts/v1.7.0-beta.1+l2-contracts"
+var DefaultL2ContractsTag = ContractsV170Beta1L2Tag
 
 type L1Versions struct {
 	Releases map[string]L1VersionsReleases `toml:"releases"`
@@ -105,6 +108,28 @@ func SuperchainFor(chainID uint64) (*superchain.Superchain, error) {
 	}
 }
 
+func ChainNameFor(chainID uint64) (string, error) {
+	switch chainID {
+	case 1:
+		return "mainnet", nil
+	case 11155111:
+		return "sepolia", nil
+	default:
+		return "", fmt.Errorf("unrecognized chain ID: %d", chainID)
+	}
+}
+
+func CommitForDeployTag(tag string) (string, error) {
+	switch tag {
+	case "op-contracts/v1.6.0":
+		return "33f06d2d5e4034125df02264a5ffe84571bd0359", nil
+	case "op-contracts/v1.7.0-beta.1+l2-contracts":
+		return "5e14a61547a45eef2ebeba677aee4a049f106ed8", nil
+	default:
+		return "", fmt.Errorf("unsupported tag: %s", tag)
+	}
+}
+
 func ManagerImplementationAddrFor(chainID uint64) (common.Address, error) {
 	switch chainID {
 	case 1:
@@ -123,6 +148,19 @@ func ManagerOwnerAddrFor(chainID uint64) (common.Address, error) {
 	case 1:
 		// Set to superchain proxy admin
 		return common.HexToAddress("0x543bA4AADBAb8f9025686Bd03993043599c6fB04"), nil
+	case 11155111:
+		// Set to development multisig
+		return common.HexToAddress("0xDEe57160aAfCF04c34C887B5962D0a69676d3C8B"), nil
+	default:
+		return common.Address{}, fmt.Errorf("unsupported chain ID: %d", chainID)
+	}
+}
+
+func SystemOwnerAddrFor(chainID uint64) (common.Address, error) {
+	switch chainID {
+	case 1:
+		// Set to owner of superchain proxy admin
+		return common.HexToAddress("0x5a0Aae59D09fccBdDb6C6CcEB07B7279367C3d2A"), nil
 	case 11155111:
 		// Set to development multisig
 		return common.HexToAddress("0xDEe57160aAfCF04c34C887B5962D0a69676d3C8B"), nil
