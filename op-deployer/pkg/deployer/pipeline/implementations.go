@@ -4,21 +4,12 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 	"github.com/ethereum-optimism/optimism/op-service/jsonutil"
 
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/opcm"
+	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/state"
 )
-
-type SuperchainProofParams struct {
-	WithdrawalDelaySeconds          uint64 `json:"withdrawalDelaySeconds" toml:"withdrawalDelaySeconds"`
-	MinProposalSizeBytes            uint64 `json:"minProposalSizeBytes" toml:"minProposalSizeBytes"`
-	ChallengePeriodSeconds          uint64 `json:"challengePeriodSeconds" toml:"challengePeriodSeconds"`
-	ProofMaturityDelaySeconds       uint64 `json:"proofMaturityDelaySeconds" toml:"proofMaturityDelaySeconds"`
-	DisputeGameFinalityDelaySeconds uint64 `json:"disputeGameFinalityDelaySeconds" toml:"disputeGameFinalityDelaySeconds"`
-	MIPSVersion                     uint64 `json:"mipsVersion" toml:"mipsVersion"`
-}
 
 func DeployImplementations(env *Env, intent *state.Intent, st *state.State) error {
 	lgr := env.Logger.New("stage", "deploy-implementations")
@@ -35,16 +26,18 @@ func DeployImplementations(env *Env, intent *state.Intent, st *state.State) erro
 	var err error
 	if intent.L1ContractsLocator.IsTag() && intent.DeploymentStrategy == state.DeploymentStrategyLive {
 		standardVersionsTOML, err = standard.L1VersionsDataFor(intent.L1ChainID)
-		if err != nil {
-			return fmt.Errorf("error getting standard versions TOML: %w", err)
+		if err == nil {
+			contractsRelease = intent.L1ContractsLocator.Tag
+		} else {
+			contractsRelease = "dev"
 		}
-		contractsRelease = intent.L1ContractsLocator.Tag
+
 	} else {
 		contractsRelease = "dev"
 	}
 
 	proofParams, err := jsonutil.MergeJSON(
-		SuperchainProofParams{
+		state.SuperchainProofParams{
 			WithdrawalDelaySeconds:          standard.WithdrawalDelaySeconds,
 			MinProposalSizeBytes:            standard.MinProposalSizeBytes,
 			ChallengePeriodSeconds:          standard.ChallengePeriodSeconds,

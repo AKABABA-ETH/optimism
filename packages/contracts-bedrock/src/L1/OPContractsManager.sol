@@ -1,34 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
+// Libraries
 import { Blueprint } from "src/libraries/Blueprint.sol";
 import { Constants } from "src/libraries/Constants.sol";
-
-import { ISemver } from "src/universal/interfaces/ISemver.sol";
-import { IResourceMetering } from "src/L1/interfaces/IResourceMetering.sol";
-import { IBigStepper } from "src/dispute/interfaces/IBigStepper.sol";
-import { IDelayedWETH } from "src/dispute/interfaces/IDelayedWETH.sol";
-import { IAnchorStateRegistry } from "src/dispute/interfaces/IAnchorStateRegistry.sol";
-import { IDisputeGame } from "src/dispute/interfaces/IDisputeGame.sol";
-import { IAddressManager } from "src/legacy/interfaces/IAddressManager.sol";
-
-import { IProxyAdmin } from "src/universal/interfaces/IProxyAdmin.sol";
-
-import { IDelayedWETH } from "src/dispute/interfaces/IDelayedWETH.sol";
-import { IDisputeGameFactory } from "src/dispute/interfaces/IDisputeGameFactory.sol";
-import { IAnchorStateRegistry } from "src/dispute/interfaces/IAnchorStateRegistry.sol";
-import { IFaultDisputeGame } from "src/dispute/interfaces/IFaultDisputeGame.sol";
-import { IPermissionedDisputeGame } from "src/dispute/interfaces/IPermissionedDisputeGame.sol";
 import { Claim, Duration, GameType, GameTypes } from "src/dispute/lib/Types.sol";
 
-import { ISuperchainConfig } from "src/L1/interfaces/ISuperchainConfig.sol";
-import { IProtocolVersions } from "src/L1/interfaces/IProtocolVersions.sol";
-import { IOptimismPortal2 } from "src/L1/interfaces/IOptimismPortal2.sol";
-import { ISystemConfig } from "src/L1/interfaces/ISystemConfig.sol";
-import { IL1CrossDomainMessenger } from "src/L1/interfaces/IL1CrossDomainMessenger.sol";
-import { IL1ERC721Bridge } from "src/L1/interfaces/IL1ERC721Bridge.sol";
-import { IL1StandardBridge } from "src/L1/interfaces/IL1StandardBridge.sol";
-import { IOptimismMintableERC20Factory } from "src/universal/interfaces/IOptimismMintableERC20Factory.sol";
+// Interfaces
+import { ISemver } from "interfaces/universal/ISemver.sol";
+import { IResourceMetering } from "interfaces/L1/IResourceMetering.sol";
+import { IBigStepper } from "interfaces/dispute/IBigStepper.sol";
+import { IDelayedWETH } from "interfaces/dispute/IDelayedWETH.sol";
+import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
+import { IDisputeGame } from "interfaces/dispute/IDisputeGame.sol";
+import { IAddressManager } from "interfaces/legacy/IAddressManager.sol";
+import { IProxyAdmin } from "interfaces/universal/IProxyAdmin.sol";
+import { IDelayedWETH } from "interfaces/dispute/IDelayedWETH.sol";
+import { IDisputeGameFactory } from "interfaces/dispute/IDisputeGameFactory.sol";
+import { IAnchorStateRegistry } from "interfaces/dispute/IAnchorStateRegistry.sol";
+import { IFaultDisputeGame } from "interfaces/dispute/IFaultDisputeGame.sol";
+import { IPermissionedDisputeGame } from "interfaces/dispute/IPermissionedDisputeGame.sol";
+import { ISuperchainConfig } from "interfaces/L1/ISuperchainConfig.sol";
+import { IProtocolVersions } from "interfaces/L1/IProtocolVersions.sol";
+import { IOptimismPortal2 } from "interfaces/L1/IOptimismPortal2.sol";
+import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
+import { IL1CrossDomainMessenger } from "interfaces/L1/IL1CrossDomainMessenger.sol";
+import { IL1ERC721Bridge } from "interfaces/L1/IL1ERC721Bridge.sol";
+import { IL1StandardBridge } from "interfaces/L1/IL1StandardBridge.sol";
+import { IOptimismMintableERC20Factory } from "interfaces/universal/IOptimismMintableERC20Factory.sol";
 
 contract OPContractsManager is ISemver {
     // -------- Structs --------
@@ -115,8 +114,8 @@ contract OPContractsManager is ISemver {
 
     // -------- Constants and Variables --------
 
-    /// @custom:semver 1.0.0-beta.21
-    string public constant version = "1.0.0-beta.21";
+    /// @custom:semver 1.0.0-beta.27
+    string public constant version = "1.0.0-beta.27";
 
     /// @notice Represents the interface version so consumers know how to decode the DeployOutput struct
     /// that's emitted in the `Deployed` event. Whenever that struct changes, a new version should be used.
@@ -128,12 +127,9 @@ contract OPContractsManager is ISemver {
     /// @notice Address of the ProtocolVersions contract shared by all chains.
     IProtocolVersions public immutable protocolVersions;
 
-    // @notice L1 smart contracts release deployed by this version of OPCM. This is used in opcm to signal which version
-    // of the L1 smart contracts is deployed. It takes the format of `op-contracts/vX.Y.Z`.
+    /// @notice L1 smart contracts release deployed by this version of OPCM. This is used in opcm to signal which
+    /// version of the L1 smart contracts is deployed. It takes the format of `op-contracts/vX.Y.Z`.
     string public l1ContractsRelease;
-
-    /// @notice Maps an L2 Chain ID to the SystemConfig for that chain.
-    mapping(uint256 => ISystemConfig) public systemConfigs;
 
     /// @notice Addresses of the Blueprint contracts.
     /// This is internal because if public the autogenerated getter method would return a tuple of
@@ -199,9 +195,7 @@ contract OPContractsManager is ISemver {
     function deploy(DeployInput calldata _input) external returns (DeployOutput memory) {
         assertValidInputs(_input);
         uint256 l2ChainId = _input.l2ChainId;
-        // The salt for a non-proxy contract is a function of the chain ID and the salt mixer.
         string memory saltMixer = _input.saltMixer;
-        bytes32 salt = keccak256(abi.encode(l2ChainId, saltMixer));
         DeployOutput memory output;
 
         // -------- Deploy Chain Singletons --------
@@ -210,9 +204,16 @@ contract OPContractsManager is ISemver {
         // this contract, and then transfer ownership to the specified owner at the end of deployment.
         // The AddressManager is used to store the implementation for the L1CrossDomainMessenger
         // due to it's usage of the legacy ResolvedDelegateProxy.
-        output.addressManager = IAddressManager(Blueprint.deployFrom(blueprint.addressManager, salt));
-        output.opChainProxyAdmin =
-            IProxyAdmin(Blueprint.deployFrom(blueprint.proxyAdmin, salt, abi.encode(address(this))));
+        output.addressManager = IAddressManager(
+            Blueprint.deployFrom(
+                blueprint.addressManager, computeSalt(l2ChainId, saltMixer, "AddressManager"), abi.encode()
+            )
+        );
+        output.opChainProxyAdmin = IProxyAdmin(
+            Blueprint.deployFrom(
+                blueprint.proxyAdmin, computeSalt(l2ChainId, saltMixer, "ProxyAdmin"), abi.encode(address(this))
+            )
+        );
         output.opChainProxyAdmin.setAddressManager(output.addressManager);
 
         // -------- Deploy Proxy Contracts --------
@@ -234,12 +235,22 @@ contract OPContractsManager is ISemver {
 
         // Deploy legacy proxied contracts.
         output.l1StandardBridgeProxy = IL1StandardBridge(
-            payable(Blueprint.deployFrom(blueprint.l1ChugSplashProxy, salt, abi.encode(output.opChainProxyAdmin)))
+            payable(
+                Blueprint.deployFrom(
+                    blueprint.l1ChugSplashProxy,
+                    computeSalt(l2ChainId, saltMixer, "L1StandardBridge"),
+                    abi.encode(output.opChainProxyAdmin)
+                )
+            )
         );
         output.opChainProxyAdmin.setProxyType(address(output.l1StandardBridgeProxy), IProxyAdmin.ProxyType.CHUGSPLASH);
         string memory contractName = "OVM_L1CrossDomainMessenger";
         output.l1CrossDomainMessengerProxy = IL1CrossDomainMessenger(
-            Blueprint.deployFrom(blueprint.resolvedDelegateProxy, salt, abi.encode(output.addressManager, contractName))
+            Blueprint.deployFrom(
+                blueprint.resolvedDelegateProxy,
+                computeSalt(l2ChainId, saltMixer, "L1CrossDomainMessenger"),
+                abi.encode(output.addressManager, contractName)
+            )
         );
         output.opChainProxyAdmin.setProxyType(
             address(output.l1CrossDomainMessengerProxy), IProxyAdmin.ProxyType.RESOLVED
@@ -250,7 +261,11 @@ contract OPContractsManager is ISemver {
         // The AnchorStateRegistry Implementation is not MCP Ready, and therefore requires an implementation per chain.
         // It must be deployed after the DisputeGameFactoryProxy so that it can be provided as a constructor argument.
         output.anchorStateRegistryImpl = IAnchorStateRegistry(
-            Blueprint.deployFrom(blueprint.anchorStateRegistry, salt, abi.encode(output.disputeGameFactoryProxy))
+            Blueprint.deployFrom(
+                blueprint.anchorStateRegistry,
+                computeSalt(l2ChainId, saltMixer, "AnchorStateRegistry"),
+                abi.encode(output.disputeGameFactoryProxy)
+            )
         );
 
         // Eventually we will switch from DelayedWETHPermissionedGameProxy to DelayedWETHPermissionlessGameProxy.
@@ -263,7 +278,7 @@ contract OPContractsManager is ISemver {
             Blueprint.deployFrom(
                 blueprint.permissionedDisputeGame1,
                 blueprint.permissionedDisputeGame2,
-                salt,
+                computeSalt(l2ChainId, saltMixer, "PermissionedDisputeGame"),
                 encodePermissionedDisputeGameConstructor(_input, output)
             )
         );
@@ -271,12 +286,12 @@ contract OPContractsManager is ISemver {
         // -------- Set and Initialize Proxy Implementations --------
         bytes memory data;
 
-        data = encodeL1ERC721BridgeInitializer(IL1ERC721Bridge.initialize.selector, output);
+        data = encodeL1ERC721BridgeInitializer(output);
         upgradeAndCall(
             output.opChainProxyAdmin, address(output.l1ERC721BridgeProxy), implementation.l1ERC721BridgeImpl, data
         );
 
-        data = encodeOptimismPortalInitializer(IOptimismPortal2.initialize.selector, output);
+        data = encodeOptimismPortalInitializer(output);
         upgradeAndCall(
             output.opChainProxyAdmin, address(output.optimismPortalProxy), implementation.optimismPortalImpl, data
         );
@@ -289,7 +304,7 @@ contract OPContractsManager is ISemver {
             output.opChainProxyAdmin, address(output.systemConfigProxy), implementation.systemConfigImpl, data
         );
 
-        data = encodeOptimismMintableERC20FactoryInitializer(IOptimismMintableERC20Factory.initialize.selector, output);
+        data = encodeOptimismMintableERC20FactoryInitializer(output);
         upgradeAndCall(
             output.opChainProxyAdmin,
             address(output.optimismMintableERC20FactoryProxy),
@@ -297,7 +312,7 @@ contract OPContractsManager is ISemver {
             data
         );
 
-        data = encodeL1CrossDomainMessengerInitializer(IL1CrossDomainMessenger.initialize.selector, output);
+        data = encodeL1CrossDomainMessengerInitializer(output);
         upgradeAndCall(
             output.opChainProxyAdmin,
             address(output.l1CrossDomainMessengerProxy),
@@ -305,12 +320,12 @@ contract OPContractsManager is ISemver {
             data
         );
 
-        data = encodeL1StandardBridgeInitializer(IL1StandardBridge.initialize.selector, output);
+        data = encodeL1StandardBridgeInitializer(output);
         upgradeAndCall(
             output.opChainProxyAdmin, address(output.l1StandardBridgeProxy), implementation.l1StandardBridgeImpl, data
         );
 
-        data = encodeDelayedWETHInitializer(IDelayedWETH.initialize.selector, _input);
+        data = encodeDelayedWETHInitializer(_input);
         // Eventually we will switch from DelayedWETHPermissionedGameProxy to DelayedWETHPermissionlessGameProxy.
         upgradeAndCall(
             output.opChainProxyAdmin,
@@ -320,7 +335,7 @@ contract OPContractsManager is ISemver {
         );
 
         // We set the initial owner to this contract, set game implementations, then transfer ownership.
-        data = encodeDisputeGameFactoryInitializer(IDisputeGameFactory.initialize.selector, _input);
+        data = encodeDisputeGameFactoryInitializer();
         upgradeAndCall(
             output.opChainProxyAdmin,
             address(output.disputeGameFactoryProxy),
@@ -332,7 +347,7 @@ contract OPContractsManager is ISemver {
         );
         output.disputeGameFactoryProxy.transferOwnership(address(_input.roles.opChainProxyAdminOwner));
 
-        data = encodeAnchorStateRegistryInitializer(IAnchorStateRegistry.initialize.selector, _input);
+        data = encodeAnchorStateRegistryInitializer(_input);
         upgradeAndCall(
             output.opChainProxyAdmin,
             address(output.anchorStateRegistryProxy),
@@ -376,6 +391,22 @@ contract OPContractsManager is ISemver {
         return address(uint160(bytes20(bytes.concat(versionByte, first19Bytes))));
     }
 
+    /// @notice Helper method for computing a salt that's used in CREATE2 deployments.
+    /// Including the contract name ensures that the resultant address from CREATE2 is unique
+    /// across our smart contract system. For example, we deploy multiple proxy contracts
+    /// with the same bytecode from this contract, so they each require a unique salt for determinism.
+    function computeSalt(
+        uint256 _l2ChainId,
+        string memory _saltMixer,
+        string memory _contractName
+    )
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(_l2ChainId, _saltMixer, _contractName));
+    }
+
     /// @notice Deterministically deploys a new proxy contract owned by the provided ProxyAdmin.
     /// The salt is computed as a function of the L2 chain ID, the salt mixer and the contract name.
     /// This is required because we deploy many identical proxies, so they each require a unique salt for determinism.
@@ -388,41 +419,37 @@ contract OPContractsManager is ISemver {
         internal
         returns (address)
     {
-        bytes32 salt = keccak256(abi.encode(_l2ChainId, _saltMixer, _contractName));
+        bytes32 salt = computeSalt(_l2ChainId, _saltMixer, _contractName);
         return Blueprint.deployFrom(blueprint.proxy, salt, abi.encode(_proxyAdmin));
     }
 
     // -------- Initializer Encoding --------
 
     /// @notice Helper method for encoding the L1ERC721Bridge initializer data.
-    function encodeL1ERC721BridgeInitializer(
-        bytes4 _selector,
-        DeployOutput memory _output
-    )
+    function encodeL1ERC721BridgeInitializer(DeployOutput memory _output)
         internal
         view
         virtual
         returns (bytes memory)
     {
-        return abi.encodeWithSelector(_selector, _output.l1CrossDomainMessengerProxy, superchainConfig);
+        return abi.encodeCall(IL1ERC721Bridge.initialize, (_output.l1CrossDomainMessengerProxy, superchainConfig));
     }
 
     /// @notice Helper method for encoding the OptimismPortal initializer data.
-    function encodeOptimismPortalInitializer(
-        bytes4 _selector,
-        DeployOutput memory _output
-    )
+    function encodeOptimismPortalInitializer(DeployOutput memory _output)
         internal
         view
         virtual
         returns (bytes memory)
     {
-        return abi.encodeWithSelector(
-            _selector,
-            _output.disputeGameFactoryProxy,
-            _output.systemConfigProxy,
-            superchainConfig,
-            GameTypes.PERMISSIONED_CANNON
+        return abi.encodeCall(
+            IOptimismPortal2.initialize,
+            (
+                _output.disputeGameFactoryProxy,
+                _output.systemConfigProxy,
+                superchainConfig,
+                GameTypes.PERMISSIONED_CANNON
+            )
         );
     }
 
@@ -436,105 +463,80 @@ contract OPContractsManager is ISemver {
         virtual
         returns (bytes memory)
     {
-        bytes4 selector = ISystemConfig.initialize.selector;
         (IResourceMetering.ResourceConfig memory referenceResourceConfig, ISystemConfig.Addresses memory opChainAddrs) =
-            defaultSystemConfigParams(selector, _input, _output);
+            defaultSystemConfigParams(_input, _output);
 
-        return abi.encodeWithSelector(
-            selector,
-            _input.roles.systemConfigOwner,
-            _input.basefeeScalar,
-            _input.blobBasefeeScalar,
-            bytes32(uint256(uint160(_input.roles.batcher))), // batcherHash
-            _input.gasLimit,
-            _input.roles.unsafeBlockSigner,
-            referenceResourceConfig,
-            chainIdToBatchInboxAddress(_input.l2ChainId),
-            opChainAddrs
+        return abi.encodeCall(
+            ISystemConfig.initialize,
+            (
+                _input.roles.systemConfigOwner,
+                _input.basefeeScalar,
+                _input.blobBasefeeScalar,
+                bytes32(uint256(uint160(_input.roles.batcher))), // batcherHash
+                _input.gasLimit,
+                _input.roles.unsafeBlockSigner,
+                referenceResourceConfig,
+                chainIdToBatchInboxAddress(_input.l2ChainId),
+                opChainAddrs
+            )
         );
     }
 
     /// @notice Helper method for encoding the OptimismMintableERC20Factory initializer data.
-    function encodeOptimismMintableERC20FactoryInitializer(
-        bytes4 _selector,
-        DeployOutput memory _output
-    )
+    function encodeOptimismMintableERC20FactoryInitializer(DeployOutput memory _output)
         internal
         pure
         virtual
         returns (bytes memory)
     {
-        return abi.encodeWithSelector(_selector, _output.l1StandardBridgeProxy);
+        return abi.encodeCall(IOptimismMintableERC20Factory.initialize, (address(_output.l1StandardBridgeProxy)));
     }
 
     /// @notice Helper method for encoding the L1CrossDomainMessenger initializer data.
-    function encodeL1CrossDomainMessengerInitializer(
-        bytes4 _selector,
-        DeployOutput memory _output
-    )
+    function encodeL1CrossDomainMessengerInitializer(DeployOutput memory _output)
         internal
         view
         virtual
         returns (bytes memory)
     {
-        return
-            abi.encodeWithSelector(_selector, superchainConfig, _output.optimismPortalProxy, _output.systemConfigProxy);
-    }
-
-    /// @notice Helper method for encoding the L1StandardBridge initializer data.
-    function encodeL1StandardBridgeInitializer(
-        bytes4 _selector,
-        DeployOutput memory _output
-    )
-        internal
-        view
-        virtual
-        returns (bytes memory)
-    {
-        return abi.encodeWithSelector(
-            _selector, _output.l1CrossDomainMessengerProxy, superchainConfig, _output.systemConfigProxy
+        return abi.encodeCall(
+            IL1CrossDomainMessenger.initialize,
+            (superchainConfig, _output.optimismPortalProxy, _output.systemConfigProxy)
         );
     }
 
-    function encodeDisputeGameFactoryInitializer(
-        bytes4 _selector,
-        DeployInput memory
-    )
+    /// @notice Helper method for encoding the L1StandardBridge initializer data.
+    function encodeL1StandardBridgeInitializer(DeployOutput memory _output)
         internal
         view
         virtual
         returns (bytes memory)
     {
+        return abi.encodeCall(
+            IL1StandardBridge.initialize,
+            (_output.l1CrossDomainMessengerProxy, superchainConfig, _output.systemConfigProxy)
+        );
+    }
+
+    function encodeDisputeGameFactoryInitializer() internal view virtual returns (bytes memory) {
         // This contract must be the initial owner so we can set game implementations, then
         // ownership is transferred after.
-        return abi.encodeWithSelector(_selector, address(this));
+        return abi.encodeCall(IDisputeGameFactory.initialize, (address(this)));
     }
 
-    function encodeAnchorStateRegistryInitializer(
-        bytes4 _selector,
-        DeployInput memory _input
-    )
+    function encodeAnchorStateRegistryInitializer(DeployInput memory _input)
         internal
         view
         virtual
         returns (bytes memory)
     {
-        // this line fails in the op-deployer tests because it is not passing in any data
         IAnchorStateRegistry.StartingAnchorRoot[] memory startingAnchorRoots =
             abi.decode(_input.startingAnchorRoots, (IAnchorStateRegistry.StartingAnchorRoot[]));
-        return abi.encodeWithSelector(_selector, startingAnchorRoots, superchainConfig);
+        return abi.encodeCall(IAnchorStateRegistry.initialize, (startingAnchorRoots, superchainConfig));
     }
 
-    function encodeDelayedWETHInitializer(
-        bytes4 _selector,
-        DeployInput memory _input
-    )
-        internal
-        view
-        virtual
-        returns (bytes memory)
-    {
-        return abi.encodeWithSelector(_selector, _input.roles.opChainProxyAdminOwner, superchainConfig);
+    function encodeDelayedWETHInitializer(DeployInput memory _input) internal view virtual returns (bytes memory) {
+        return abi.encodeCall(IDelayedWETH.initialize, (_input.roles.opChainProxyAdminOwner, superchainConfig));
     }
 
     function encodePermissionedDisputeGameConstructor(
@@ -565,7 +567,6 @@ contract OPContractsManager is ISemver {
     /// @notice Returns default, standard config arguments for the SystemConfig initializer.
     /// This is used by subclasses to reduce code duplication.
     function defaultSystemConfigParams(
-        bytes4, /* selector */
         DeployInput memory, /* _input */
         DeployOutput memory _output
     )

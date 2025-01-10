@@ -6,7 +6,6 @@ import { CommonTest } from "test/setup/CommonTest.sol";
 
 // Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { ConfigType } from "src/L2/L1BlockInterop.sol";
 
 // Libraries
 import { Constants } from "src/libraries/Constants.sol";
@@ -14,9 +13,10 @@ import { StaticConfig } from "src/libraries/StaticConfig.sol";
 import { GasPayingToken } from "src/libraries/GasPayingToken.sol";
 
 // Interfaces
-import { ISystemConfig } from "src/L1/interfaces/ISystemConfig.sol";
-import { ISystemConfigInterop } from "src/L1/interfaces/ISystemConfigInterop.sol";
-import { IOptimismPortalInterop } from "src/L1/interfaces/IOptimismPortalInterop.sol";
+import { ISystemConfig } from "interfaces/L1/ISystemConfig.sol";
+import { ISystemConfigInterop } from "interfaces/L1/ISystemConfigInterop.sol";
+import { IOptimismPortalInterop } from "interfaces/L1/IOptimismPortalInterop.sol";
+import { ConfigType } from "interfaces/L2/IL1BlockInterop.sol";
 
 contract SystemConfigInterop_Test is CommonTest {
     /// @notice Marked virtual to be overridden in
@@ -26,8 +26,18 @@ contract SystemConfigInterop_Test is CommonTest {
         super.setUp();
     }
 
+    /// @dev Temporary test that checks that correct calls to initialize when using a custom gas token revert with the
+    /// expected error.
+    /// @dev Should be removed when/if Custom Gas Token functionality is allowed again.
+    function test_initialize_customGasToken_reverts() external {
+        vm.expectRevert(ISystemConfig.CustomGasTokenNotSupported.selector);
+        _cleanStorageAndInit(address(L1Token));
+    }
+
     /// @dev Tests that when the decimals is not 18, initialization reverts.
     function test_initialize_decimalsIsNot18_reverts(uint8 decimals) external {
+        vm.skip(true, "Custom gas token not supported");
+
         vm.assume(decimals != 18);
         address _token = address(L1Token);
 
@@ -39,6 +49,40 @@ contract SystemConfigInterop_Test is CommonTest {
         _cleanStorageAndInit(_token);
     }
 
+    /// @dev Temporary test that checks that correct calls to setGasPayingToken when using a custom gas token revert
+    /// with the expected error.
+    /// @dev Should be removed when/if Custom Gas Token functionality is allowed again.
+    function test_setGasPayingToken_customGasToken_reverts(
+        address _token,
+        string calldata _name,
+        string calldata _symbol
+    )
+        external
+    {
+        assumeNotForgeAddress(_token);
+        vm.assume(_token != address(0));
+        vm.assume(_token != Constants.ETHER);
+
+        // Using vm.assume() would cause too many test rejections.
+        string memory name = _name;
+        if (bytes(_name).length > 32) {
+            name = _name[:32];
+        }
+
+        // Using vm.assume() would cause too many test rejections.
+        string memory symbol = _symbol;
+        if (bytes(_symbol).length > 32) {
+            symbol = _symbol[:32];
+        }
+
+        vm.mockCall(_token, abi.encodeCall(ERC20.decimals, ()), abi.encode(18));
+        vm.mockCall(_token, abi.encodeCall(ERC20.name, ()), abi.encode(name));
+        vm.mockCall(_token, abi.encodeCall(ERC20.symbol, ()), abi.encode(symbol));
+
+        vm.expectRevert(ISystemConfig.CustomGasTokenNotSupported.selector);
+        _cleanStorageAndInit(_token);
+    }
+
     /// @dev Tests that the gas paying token can be set.
     function testFuzz_setGasPayingToken_succeeds(
         address _token,
@@ -47,19 +91,30 @@ contract SystemConfigInterop_Test is CommonTest {
     )
         public
     {
+        vm.skip(true, "Custom gas token not supported");
+
         assumeNotForgeAddress(_token);
         vm.assume(_token != address(0));
         vm.assume(_token != Constants.ETHER);
 
-        vm.assume(bytes(_name).length <= 32);
-        vm.assume(bytes(_symbol).length <= 32);
+        // Using vm.assume() would cause too many test rejections.
+        string memory name = _name;
+        if (bytes(_name).length > 32) {
+            name = _name[:32];
+        }
+
+        // Using vm.assume() would cause too many test rejections.
+        string memory symbol = _symbol;
+        if (bytes(_symbol).length > 32) {
+            symbol = _symbol[:32];
+        }
 
         vm.mockCall(_token, abi.encodeCall(ERC20.decimals, ()), abi.encode(18));
-        vm.mockCall(_token, abi.encodeCall(ERC20.name, ()), abi.encode(_name));
-        vm.mockCall(_token, abi.encodeCall(ERC20.symbol, ()), abi.encode(_symbol));
+        vm.mockCall(_token, abi.encodeCall(ERC20.name, ()), abi.encode(name));
+        vm.mockCall(_token, abi.encodeCall(ERC20.symbol, ()), abi.encode(symbol));
 
         vm.expectCall(
-            address(optimismPortal),
+            address(optimismPortal2),
             abi.encodeCall(
                 IOptimismPortalInterop.setConfig,
                 (
@@ -67,8 +122,8 @@ contract SystemConfigInterop_Test is CommonTest {
                     StaticConfig.encodeSetGasPayingToken({
                         _token: _token,
                         _decimals: 18,
-                        _name: GasPayingToken.sanitize(_name),
-                        _symbol: GasPayingToken.sanitize(_symbol)
+                        _name: GasPayingToken.sanitize(name),
+                        _symbol: GasPayingToken.sanitize(symbol)
                     })
                 )
             )
@@ -80,7 +135,7 @@ contract SystemConfigInterop_Test is CommonTest {
     /// @dev Tests that a dependency can be added.
     function testFuzz_addDependency_succeeds(uint256 _chainId) public {
         vm.expectCall(
-            address(optimismPortal),
+            address(optimismPortal2),
             abi.encodeCall(
                 IOptimismPortalInterop.setConfig,
                 (ConfigType.ADD_DEPENDENCY, StaticConfig.encodeAddDependency(_chainId))
@@ -102,7 +157,7 @@ contract SystemConfigInterop_Test is CommonTest {
     /// @dev Tests that a dependency can be removed.
     function testFuzz_removeDependency_succeeds(uint256 _chainId) public {
         vm.expectCall(
-            address(optimismPortal),
+            address(optimismPortal2),
             abi.encodeCall(
                 IOptimismPortalInterop.setConfig,
                 (ConfigType.REMOVE_DEPENDENCY, StaticConfig.encodeRemoveDependency(_chainId))
@@ -143,7 +198,7 @@ contract SystemConfigInterop_Test is CommonTest {
                 l1ERC721Bridge: address(0),
                 disputeGameFactory: address(0),
                 l1StandardBridge: address(0),
-                optimismPortal: address(optimismPortal),
+                optimismPortal: address(optimismPortal2),
                 optimismMintableERC20Factory: address(0),
                 gasPayingToken: _token
             })

@@ -16,10 +16,10 @@ import { Hashing } from "src/libraries/Hashing.sol";
 import { Types } from "src/libraries/Types.sol";
 
 // Interfaces
-import { ICrossDomainMessenger } from "src/universal/interfaces/ICrossDomainMessenger.sol";
-import { IStandardBridge } from "src/universal/interfaces/IStandardBridge.sol";
-import { IL2ToL1MessagePasser } from "src/L2/interfaces/IL2ToL1MessagePasser.sol";
-import { IL2StandardBridge } from "src/L2/interfaces/IL2StandardBridge.sol";
+import { ICrossDomainMessenger } from "interfaces/universal/ICrossDomainMessenger.sol";
+import { IStandardBridge } from "interfaces/universal/IStandardBridge.sol";
+import { IL2ToL1MessagePasser } from "interfaces/L2/IL2ToL1MessagePasser.sol";
+import { IL2StandardBridge } from "interfaces/L2/IL2StandardBridge.sol";
 
 contract L2StandardBridge_Test is CommonTest {
     using stdStorage for StdStorage;
@@ -27,7 +27,7 @@ contract L2StandardBridge_Test is CommonTest {
     /// @dev Test that the bridge's constructor sets the correct values.
     function test_constructor_succeeds() external view {
         IL2StandardBridge impl =
-            IL2StandardBridge(payable(EIP1967Helper.getImplementation(deploy.mustGetAddress("L2StandardBridge"))));
+            IL2StandardBridge(payable(EIP1967Helper.getImplementation(artifacts.mustGetAddress("L2StandardBridge"))));
         // The implementation contract is initialized with a 0 L1 bridge address,
         // but the L2 cross-domain-messenger is always set to the predeploy address for both proxy and implementation.
         assertEq(address(impl.MESSENGER()), Predeploys.L2_CROSS_DOMAIN_MESSENGER, "constructor zero check MESSENGER");
@@ -44,6 +44,12 @@ contract L2StandardBridge_Test is CommonTest {
         assertEq(l1StandardBridge.l2TokenBridge(), address(l2StandardBridge));
         assertEq(address(l2StandardBridge.OTHER_BRIDGE()), address(l1StandardBridge));
         assertEq(address(l2StandardBridge.otherBridge()), address(l1StandardBridge));
+    }
+
+    /// @notice Tests that the version function returns a valid string. We avoid testing the
+    ///         specific value of the string as it changes frequently.
+    function test_version_succeeds() external view {
+        assert(bytes(l2StandardBridge.version()).length > 0);
     }
 
     /// @dev Ensures that the L2StandardBridge is always not paused. The pausability
@@ -413,7 +419,7 @@ contract PreBridgeERC20To is CommonTest {
     // so they should share the same setup and expectEmit calls
     function _preBridgeERC20To(bool _isLegacy, address _l2Token) internal {
         deal(_l2Token, alice, 100, true);
-        assertEq(ERC20(L2Token).balanceOf(alice), 100);
+        assertEq(L2Token.balanceOf(alice), 100);
         uint256 nonce = l2CrossDomainMessenger.messageNonce();
         bytes memory message =
             abi.encodeCall(IStandardBridge.finalizeBridgeERC20, (address(L1Token), _l2Token, alice, bob, 100, hex""));

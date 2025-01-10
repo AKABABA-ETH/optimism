@@ -105,6 +105,24 @@ func TestInterop_IsolatedChains(t *testing.T) {
 	setupAndRun(t, config, test)
 }
 
+// TestInterop_SupervisorFinality tests that the supervisor updates its finality
+// It waits for the finalized block to advance past the genesis block.
+func TestInterop_SupervisorFinality(t *testing.T) {
+	test := func(t *testing.T, s2 SuperSystem) {
+		supervisor := s2.SupervisorClient()
+		require.Eventually(t, func() bool {
+			final, err := supervisor.FinalizedL1(context.Background())
+			require.NoError(t, err)
+			return final.Number > 0
+			// this test takes about 30 seconds, with a longer Eventually timeout for CI
+		}, time.Second*60, time.Second, "wait for finalized block to be greater than 0")
+	}
+	config := SuperSystemConfig{
+		mempoolFiltering: false,
+	}
+	setupAndRun(t, config, test)
+}
+
 // TestInterop_EmitLogs tests a simple interop scenario
 // Chains A and B exist, but no messages are sent between them.
 // A contract is deployed on each chain, and logs are emitted repeatedly.
@@ -121,7 +139,9 @@ func TestInterop_EmitLogs(t *testing.T) {
 		var emitParallel sync.WaitGroup
 		emitOn := func(chainID string) {
 			for i := 0; i < numEmits; i++ {
-				s2.EmitData(chainID, "Alice", payload1)
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				s2.EmitData(ctx, chainID, "Alice", payload1)
+				cancel()
 			}
 			emitParallel.Done()
 		}
@@ -218,7 +238,9 @@ func TestInteropBlockBuilding(t *testing.T) {
 
 		// Add chain A as dependency to chain B,
 		// such that we can execute a message on B that was initiated on A.
-		depRec := s2.AddDependency(chainB, s2.ChainID(chainA))
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		depRec := s2.AddDependency(ctx, chainB, s2.ChainID(chainA))
+		cancel()
 		t.Logf("Dependency set in L1 block %d", depRec.BlockNumber)
 
 		rollupClA, err := dial.DialRollupClientWithTimeout(context.Background(), time.Second*15, logger, s2.OpNode(chainA).UserRPC().RPC())
@@ -233,7 +255,9 @@ func TestInteropBlockBuilding(t *testing.T) {
 		t.Log("Dependency information has been processed in L2 block")
 
 		// emit log on chain A
-		emitRec := s2.EmitData(chainA, "Alice", "hello world")
+		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		emitRec := s2.EmitData(ctx, chainA, "Alice", "hello world")
+		cancel()
 		t.Logf("Emitted a log event in block %d", emitRec.BlockNumber.Uint64())
 
 		// Wait for initiating side to become cross-unsafe
@@ -274,18 +298,17 @@ func TestInteropBlockBuilding(t *testing.T) {
 
 		t.Log("Testing invalid message")
 		{
-			bobAddr := s2.Address(chainA, "Bob") // direct it to a random account without code
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 			defer cancel()
-			// Send an executing message, but with different payload.
+			// Emitting an executing message, but with different payload.
 			if s2.(*interopE2ESystem).config.mempoolFiltering {
 				// We expect the traqnsaction to be filtered out by the mempool if mempool filtering is enabled.
-				// ExecuteMessage the ErrTxFilteredOut error is checked when sending the tx.
-				_, err := s2.ExecuteMessage(ctx, chainB, "Alice", identifier, bobAddr, invalidPayload, gethCore.ErrTxFilteredOut)
+				// ValidateMessage the ErrTxFilteredOut error is checked when sending the tx.
+				_, err := s2.ValidateMessage(ctx, chainB, "Alice", identifier, invalidPayloadHash, gethCore.ErrTxFilteredOut)
 				require.ErrorContains(t, err, gethCore.ErrTxFilteredOut.Error())
 			} else {
 				// We expect the miner to be unable to include this tx, and confirmation to thus time out, if mempool filtering is disabled.
-				_, err := s2.ExecuteMessage(ctx, chainB, "Alice", identifier, bobAddr, invalidPayload, nil)
+				_, err := s2.ValidateMessage(ctx, chainB, "Alice", identifier, invalidPayloadHash, nil)
 				require.ErrorIs(t, err, ctx.Err())
 				require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
 			}
@@ -293,11 +316,10 @@ func TestInteropBlockBuilding(t *testing.T) {
 
 		t.Log("Testing valid message now")
 		{
-			bobAddr := s2.Address(chainA, "Bob") // direct it to a random account without code
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 			defer cancel()
-			// Send an executing message with the correct identifier / payload
-			rec, err := s2.ExecuteMessage(ctx, chainB, "Alice", identifier, bobAddr, msgPayload, nil)
+			// Emit an executing message with the correct identifier / payload
+			rec, err := s2.ValidateMessage(ctx, chainB, "Alice", identifier, payloadHash, nil)
 			require.NoError(t, err, "expecting tx to be confirmed")
 			t.Logf("confirmed executing msg in block %s", rec.BlockNumber)
 		}
